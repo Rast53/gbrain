@@ -50,6 +50,7 @@ const CLI_ONLY = new Set(['init', 'reinit-pglite', 'upgrade', 'post-upgrade', 'c
 // per-subcommand usage stays reachable.
 const CLI_ONLY_SELF_HELP = new Set([
   'upgrade', 'post-upgrade', 'check-update',
+  'dream', 'reindex',
   'embed', 'config',
   'skillpack', 'skillpack-check',
   'integrations', 'friction',
@@ -1038,6 +1039,16 @@ async function handleCliOnly(command: string, args: string[]) {
   }
 
   // Commands that don't need a database connection
+  if (command === 'dream' && hasHelpFlag(args)) {
+    const { runDream } = await import('./commands/dream.ts');
+    await runDream(null, args);
+    return;
+  }
+  if (command === 'reindex' && hasHelpFlag(args) && !args.includes('--multimodal') && !args.includes('--aliases')) {
+    const { runReindex } = await import('./commands/reindex.ts');
+    await runReindex(null as unknown as BrainEngine, args);
+    return;
+  }
   if (command === 'schema') {
     const { runSchema } = await import('./commands/schema.ts');
     await runSchema(args);

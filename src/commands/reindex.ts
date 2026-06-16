@@ -41,6 +41,8 @@ interface ReindexOpts {
   dryRun?: boolean;
   /** Emit JSON envelope on stdout. */
   json?: boolean;
+  /** Print operator help and exit without work. */
+  help?: boolean;
   /** Brain repo path (for reading source files). Falls back to sync.repo_path config or process.cwd(). */
   repoPath?: string;
   /**
@@ -72,7 +74,8 @@ function parseArgs(args: string[]): ReindexOpts {
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === '--markdown') continue; // routing flag, no value
-    if (a === '--dry-run') out.dryRun = true;
+    if (a === '--help' || a === '-h') out.help = true;
+    else if (a === '--dry-run') out.dryRun = true;
     else if (a === '--json') out.json = true;
     else if (a === '--no-embed') out.noEmbed = true;
     else if (a === '--limit') {
@@ -140,8 +143,58 @@ async function readBatch(engine: BrainEngine, batchSize: number): Promise<Array<
   );
 }
 
+function printHelp(): void {
+  console.log(`Usage: gbrain reindex --markdown [options]
+
+Re-chunk markdown pages that need the current markdown chunker and
+contextual-retrieval (CR) ladder stamp. This is the operator fix for
+gbrain doctor warnings like:
+
+  contextual_retrieval_coverage: N page(s) never evaluated against CR ladder
+
+What it does:
+  - selects markdown pages whose chunker_version is stale OR whose
+    contextual_retrieval_mode is NULL
+  - re-imports each page through the standard markdown importer
+  - preserves frontmatter, body, tags and timeline
+  - bumps chunker_version and records the CR mode
+  - embeds by default; use --no-embed to leave stale embeddings for a later
+    gbrain embed --stale pass
+
+Options:
+  --markdown           Required target flag for this sweep
+  --dry-run            Count pending pages; do not write
+  --limit N            Process at most N pages, so large brains can be batched
+  --workers N          Per-batch parallel import workers (alias: --concurrency)
+  --repo PATH          Read source files from PATH when source_path exists;
+                       otherwise re-chunk from the DB copy
+  --no-embed           Re-chunk without embedding calls
+  --json               Emit machine-readable JSON
+  --help, -h           Show this help
+
+Safe operator flow:
+  gbrain reindex --markdown --dry-run --limit 20 --json
+  gbrain reindex --markdown --limit 20 --workers 2 --json
+  gbrain doctor --json
+
+Large-brain batching example:
+  gbrain reindex --markdown --limit 100 --workers 4 --json
+  gbrain reindex --markdown --limit 100 --workers 4 --json
+
+Notes:
+  - Re-runs are idempotent; completed pages are skipped on later batches.
+  - --dry-run does not call embedding providers.
+  - If you use --no-embed, run gbrain embed --stale later.
+`);
+}
+
 export async function runReindex(engine: BrainEngine, args: string[]): Promise<ReindexResult> {
   const opts = parseArgs(args);
+
+  if (opts.help) {
+    printHelp();
+    return { pending: 0, reindexed: 0, skipped: 0, failed: 0, dryRun: !!opts.dryRun, chunkerVersion: MARKDOWN_CHUNKER_VERSION };
+  }
 
   // Require `--markdown` explicitly. Future modes (e.g. --code) get their
   // own routing here.
@@ -149,7 +202,7 @@ export async function runReindex(engine: BrainEngine, args: string[]): Promise<R
     if (opts.json) {
       process.stdout.write(JSON.stringify({ error: 'gbrain reindex requires a target flag, e.g. --markdown' }) + '\n');
     } else {
-      process.stderr.write('Usage: gbrain reindex --markdown [--limit N] [--dry-run] [--json] [--repo PATH]\n');
+      printHelp();
     }
     setCliExitVerdict(2);
     return { pending: 0, reindexed: 0, skipped: 0, failed: 0, dryRun: !!opts.dryRun, chunkerVersion: MARKDOWN_CHUNKER_VERSION };

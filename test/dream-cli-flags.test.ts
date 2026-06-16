@@ -106,6 +106,7 @@ describe('dream CLI flag wiring', () => {
     });
   });
 
+
   // issue #1678 — --drain bounded backlog drain wiring (structural).
   describe('--drain wiring', () => {
     test('declares --drain and --window flags', () => {
@@ -135,4 +136,13 @@ describe('dream CLI flag wiring', () => {
       expect(dreamSrc).toContain('cycle_already_running');
     });
   });
+
+
+  test('help text includes operator-safe examples for source-scoped phases', () => {
+    expect(dreamSrc).toContain('gbrain dream --source raclaw-memory --phase embed --json');
+    expect(dreamSrc).toContain('lint --dry-run');
+    expect(dreamSrc).toContain('cycle_freshness');
+  });
+
+
 });

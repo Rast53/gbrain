@@ -296,12 +296,15 @@ async function resolveBrainDir(
 function printHelp() {
   console.log(`Usage: gbrain dream [options]
 
-Run one brain maintenance cycle. Eight phases:
-  lint -> backlinks -> sync -> synthesize -> extract -> patterns -> embed -> orphans
+Run one brain maintenance cycle. A full cycle runs every phase in
+ALL_PHASES order; use --phase for controlled operator work. Some phases are
+filesystem/source-scoped (lint, sync, extract), some are DB/global (embed,
+orphans, resolve_symbol_edges), and some can call LLMs (synthesize, patterns,
+takes/calibration, atom/concept phases).
 
-The synthesize + patterns phases (v0.21) consolidate yesterday's
-conversation transcripts into reflections, originals, and cross-session
-pattern pages. Designed for cron (exits when done).
+For production maintenance, prefer scoped, inspectable runs before full cycles:
+start with --dry-run, use --source on federated brains so doctor can stamp
+cycle_freshness, and run one phase at a time when the risk surface is unclear.
 
 Options:
   --dry-run           Preview all fixes without writing. Note: synthesize
@@ -310,6 +313,10 @@ Options:
                       "--dry-run" does NOT mean "zero LLM calls."
   --json              Emit the CycleReport as JSON (agent-readable)
   --phase <name>      Run a single phase: ${ALL_PHASES.join(' | ')}
+                      Safer operator phases: embed (DB-only), orphans
+                      (read-only scan), lint --dry-run (issue preview).
+                      Higher-impact phases: sync/extract/backlinks/patterns/
+                      synthesize/consolidate/purge.
   --pull              git pull the brain repo before syncing (default: no pull)
   --dir <path>        Brain directory (default: configured brain). On a
                       postgres/remote brain with no local checkout, the
@@ -350,15 +357,16 @@ Options:
   --help, -h          Show this help
 
 Examples:
-  gbrain dream
+  gbrain dream --source raclaw-memory --phase embed --json
+  gbrain dream --source raclaw-memory --phase lint --dry-run --json
+  gbrain dream --source raclaw-memory --phase orphans --json
   gbrain dream --dry-run --json
-  gbrain dream --phase lint
+  gbrain dream
   gbrain dream --phase synthesize --input ~/transcripts/2026-04-25.txt
   gbrain dream --phase synthesize --from 2026-04-01 --to 2026-04-25
   0 2 * * * gbrain dream --json         # nightly via cron
 
 Configure synthesize:
-  gbrain config set dream.synthesize.session_corpus_dir /path/to/transcripts
   gbrain config set dream.synthesize.session_corpus_dir /path/to/transcripts
 
 Related:

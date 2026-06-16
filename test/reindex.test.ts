@@ -7,6 +7,7 @@
  */
 
 import { describe, test, expect, beforeAll, afterAll, beforeEach } from 'bun:test';
+import { readFileSync } from 'fs';
 import { PGLiteEngine } from '../src/core/pglite-engine.ts';
 import { runReindex } from '../src/commands/reindex.ts';
 import { MARKDOWN_CHUNKER_VERSION } from '../src/core/chunkers/recursive.ts';
@@ -146,5 +147,17 @@ describe('gbrain reindex --markdown (v0.32.7)', () => {
     const result = await runReindex(engine, ['--markdown', '--no-embed']);
     expect(result.pending).toBe(1);
     expect(result.reindexed).toBe(1);
+  });
+});
+
+
+describe('gbrain reindex --markdown operator help', () => {
+  test('operator help documents safe batching flags and doctor warning', () => {
+    const src = readFileSync(new URL('../src/commands/reindex.ts', import.meta.url), 'utf-8');
+    expect(src).toContain('Usage: gbrain reindex --markdown [options]');
+    expect(src).toContain('contextual_retrieval_coverage');
+    expect(src).toContain('--workers N');
+    expect(src).toContain('--no-embed');
+    expect(src).toContain('Safe operator flow');
   });
 });

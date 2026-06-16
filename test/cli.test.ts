@@ -40,6 +40,14 @@ describe('CLI structure', () => {
   // at src/cli.ts:1334 but was missing from CLI_ONLY, so the dispatcher
   // rejected `gbrain reindex` with "Unknown command: reindex" before the
   // handler ever ran. Cherry-picked from kylma-code-adjacent PR #1354.
+
+  test('reindex and dream are in CLI_ONLY_SELF_HELP (detailed --help reachable)', () => {
+    const selfHelpMatch = cliSource.match(/const CLI_ONLY_SELF_HELP = new Set\(\[([\s\S]*?)\]\)/);
+    expect(selfHelpMatch).not.toBeNull();
+    expect(selfHelpMatch![1]).toContain(`'reindex'`);
+    expect(selfHelpMatch![1]).toContain(`'dream'`);
+  });
+
   test('reindex is in CLI_ONLY (does not get "Unknown command")', () => {
     const onlyMatch = cliSource.match(/const CLI_ONLY = new Set\(\[([\s\S]*?)\]\)/);
     expect(onlyMatch).not.toBeNull();
