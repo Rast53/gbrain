@@ -462,7 +462,7 @@ export async function runServeHttp(engine: BrainEngine, options: ServeHttpOption
   // v0.36.x #1024: bootstrap token sourcing.
   //
   // Default: regenerate per process start, print to stderr so the operator
-  // can paste into /admin login. Stable across restarts only when env var
+  // used for initial admin bootstrap. Stable across restarts only when env var
   // is set. The env override must be a strong secret — `[A-Za-z0-9_-]{32+}`
   // — otherwise refuse to start. Logging the bootstrap-token value every
   // restart is the original gripe; with `GBRAIN_ADMIN_BOOTSTRAP_TOKEN` set
@@ -2115,7 +2115,7 @@ ${suppressBootstrapPrint
   ? '║  Admin Token: suppressed (--suppress-bootstrap-token) ║\n╚══════════════════════════════════════════════════════╝'
   : bootstrapFromEnv
     ? '║  Admin Token: from $GBRAIN_ADMIN_BOOTSTRAP_TOKEN     ║\n╚══════════════════════════════════════════════════════╝'
-    : `║  Admin Token (paste into /admin login):              ║\n║  ${bootstrapToken.substring(0, 50)}  ║\n║  ${bootstrapToken.substring(50).padEnd(50)}  ║\n╚══════════════════════════════════════════════════════╝`}
+    : '║  Admin Token: generated, not printed in logs         ║\n║  Use --suppress-bootstrap-token or set env token     ║\n╚══════════════════════════════════════════════════════╝'}
 `);
   });
 }
