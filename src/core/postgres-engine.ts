@@ -2215,13 +2215,21 @@ export class PostgresEngine implements BrainEngine {
     );
   }
 
-  async getChunks(slug: string, opts?: { sourceId?: string }): Promise<Chunk[]> {
+  async getChunks(slug: string, opts?: { sourceId?: string; sourceIds?: string[] }): Promise<Chunk[]> {
     const sql = this.sql;
     const sourceId = opts?.sourceId ?? 'default';
+    const sourceIds = opts?.sourceIds;
+    // Same precedence as getPage: a federated grant (sourceIds[]) wins over
+    // scalar sourceId so remote read handlers do not widen or collapse to the
+    // default/write source when opening chunks from a retrieval result.
+    const sourceCondition =
+      sourceIds && sourceIds.length > 0
+        ? sql`AND p.source_id = ANY(${sourceIds}::text[])`
+        : sql`AND p.source_id = ${sourceId}`;
     const rows = await sql`
       SELECT cc.* FROM content_chunks cc
       JOIN pages p ON p.id = cc.page_id
-      WHERE p.slug = ${slug} AND p.source_id = ${sourceId}
+      WHERE p.slug = ${slug} ${sourceCondition}
       ORDER BY cc.chunk_index
     `;
     return rows.map((r) => rowToChunk(r as Record<string, unknown>));

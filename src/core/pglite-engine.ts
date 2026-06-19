@@ -2164,14 +2164,25 @@ export class PGLiteEngine implements BrainEngine {
     );
   }
 
-  async getChunks(slug: string, opts?: { sourceId?: string }): Promise<Chunk[]> {
+  async getChunks(slug: string, opts?: { sourceId?: string; sourceIds?: string[] }): Promise<Chunk[]> {
     const sourceId = opts?.sourceId ?? 'default';
+    const sourceIds = opts?.sourceIds;
+    const params: unknown[] = [slug];
+    let sourceClause: string;
+    // Same precedence as getPage: sourceIds[] wins over scalar sourceId.
+    if (sourceIds && sourceIds.length > 0) {
+      params.push(sourceIds);
+      sourceClause = `p.source_id = ANY($${params.length}::text[])`;
+    } else {
+      params.push(sourceId);
+      sourceClause = `p.source_id = $${params.length}`;
+    }
     const { rows } = await this.db.query(
       `SELECT cc.* FROM content_chunks cc
        JOIN pages p ON p.id = cc.page_id
-       WHERE p.slug = $1 AND p.source_id = $2
+       WHERE p.slug = $1 AND ${sourceClause}
        ORDER BY cc.chunk_index`,
-      [slug, sourceId]
+      params
     );
     return (rows as Record<string, unknown>[]).map(r => rowToChunk(r));
   }

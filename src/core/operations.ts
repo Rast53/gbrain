@@ -604,18 +604,20 @@ const get_page: Operation = {
     slug: { type: 'string', required: true, description: 'Page slug' },
     fuzzy: { type: 'boolean', description: 'Enable fuzzy slug resolution (default: false)' },
     include_deleted: { type: 'boolean', description: 'v0.26.5: surface soft-deleted pages with deleted_at populated (default: false). Used by restore workflows.' },
+    source_id: { type: 'string', description: "Optional source scope override. Use '__all__' only for trusted local callers; remote callers stay within their grant." },
   },
   handler: async (ctx, p) => {
     const slug = p.slug as string;
     const fuzzy = (p.fuzzy as boolean) || false;
     const includeDeleted = (p.include_deleted as boolean) === true;
+    const sourceIdParam = typeof p.source_id === 'string' ? p.source_id : undefined;
     // #1393: route BOTH the exact-match read and the fuzzy resolveSlugs through
     // the canonical precedence ladder (federated array > scalar > nothing). The
     // exact path previously used scalar `ctx.sourceId` only, so a remote client
     // with a federated `allowedSources` grant (and no single ctx.sourceId) got
     // an UNSCOPED exact lookup — a cross-source read of any page by slug. getPage
     // now honors sourceIds[] (both engines), so the same scope closes both paths.
-    const sourceOpts = sourceScopeOpts(ctx);
+    const sourceOpts = resolveRequestedScope(ctx, sourceIdParam);
     const fuzzyScope = sourceOpts;
 
     let page = await ctx.engine.getPage(slug, { includeDeleted, ...sourceOpts });
@@ -2461,10 +2463,13 @@ const get_chunks: Operation = {
   description: 'Get content chunks for a page',
   params: {
     slug: { type: 'string', required: true },
+    source_id: { type: 'string', description: "Optional source scope override. Use '__all__' only for trusted local callers; remote callers stay within their grant." },
   },
   handler: async (ctx, p) => {
-    // v0.31.8 (D20): thread ctx.sourceId.
-    const sourceOpts = ctx.sourceId ? { sourceId: ctx.sourceId } : {};
+    // v0.43: match get_page/query source override semantics so non-default
+    // source pages returned by retrieval can be opened directly.
+    const sourceIdParam = typeof p.source_id === 'string' ? p.source_id : undefined;
+    const sourceOpts = resolveRequestedScope(ctx, sourceIdParam);
     return ctx.engine.getChunks(p.slug as string, sourceOpts);
   },
   scope: 'read',

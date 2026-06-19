@@ -961,7 +961,7 @@ export interface BrainEngine {
    * same-slug source (importCodeFile uses this for incremental embedding
    * reuse, which would then attach the wrong source's embeddings).
    */
-  getChunks(slug: string, opts?: { sourceId?: string }): Promise<Chunk[]>;
+  getChunks(slug: string, opts?: { sourceId?: string; sourceIds?: string[] }): Promise<Chunk[]>;
   /**
    * Count chunks across the brain where embedding IS NULL.
    * Pre-flight short-circuit for `embed --stale` so a 100%-embedded brain
