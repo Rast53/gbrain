@@ -59,6 +59,21 @@ const DEFAULT_FILE_LIMIT = 10_000;
 const DEFAULT_TIMEOUT_MS = 5_000;
 const SAMPLE_LIMIT = 5;
 
+const DEFAULT_CANONICAL_PREFIXES = [
+  'devices/',
+  'projects/',
+  'repos/',
+  'research/gbrain-graph-to-wiki-workflow',
+  'servers/',
+  'services/',
+  'sources/',
+];
+
+function isAllowedDefaultCanonicalSlug(slug: string): boolean {
+  return DEFAULT_CANONICAL_PREFIXES.some(prefix => slug === prefix.slice(0, -1) || slug.startsWith(prefix));
+}
+
+
 /**
  * Walk a directory tree for `.md` + `.mdx` files. Skips dotfiles (`.git`),
  * `_*.md` files (the existing extract.ts convention), and silently swallows
@@ -206,7 +221,7 @@ export async function findMisroutedPages(
       const hasDefault = present.has('default');
       const hasSource = present.has(src.id);
       // The misroute heuristic: present at default, missing from intended source.
-      if (hasDefault && !hasSource) {
+      if (hasDefault && !hasSource && !isAllowedDefaultCanonicalSlug(slug)) {
         totalCount++;
         if (sample.length < SAMPLE_LIMIT) {
           sample.push({ slug, intended_source: src.id, local_path: src.local_path });

@@ -37,6 +37,9 @@ export const EMBEDDING_PRICING: Record<string, EmbeddingPricing> = {
   'voyage:voyage-4-large':         { pricePerMTok: 0.18 },
   // ZeroEntropy (https://zeroentropy.dev/pricing — zembed-1)
   'zeroentropyai:zembed-1':        { pricePerMTok: 0.05 },
+  // LiteLLM/Qwen (qwen/qwen3-embedding-8b via OpenRouter proxy)
+  'litellm:qwen/qwen3-embedding-8b': { pricePerMTok: 0.02 },
+  'qwen:qwen3-embedding-8b':         { pricePerMTok: 0.02 },
 };
 
 export type PriceLookupResult =
