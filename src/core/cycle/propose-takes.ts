@@ -40,6 +40,8 @@
 import { randomUUID, createHash } from 'node:crypto';
 import { BaseCyclePhase, type ScopedReadOpts, type BasePhaseOpts } from './base-phase.ts';
 import { chat as gatewayChat } from '../ai/gateway.ts';
+import { resolveModel } from '../model-config.ts';
+import { normalizeModelId } from '../model-id.ts';
 import { writeReceipt } from '../extract/receipt-writer.ts';
 import { upsertExtractRollup } from '../extract/rollup-writer.ts';
 import { GBrainError } from '../types.ts';
@@ -283,6 +285,20 @@ export function parseExtractorOutput(raw: string): ProposedTake[] {
  * BaseCyclePhase subclass. Walks pages, checks idempotency cache, calls
  * extractor, writes proposals.
  */
+// v0.42.x (raclaw): route propose_takes through resolveModel so
+// models.propose_takes / models.default / models.tier.reasoning overrides reach
+// the extractor. Previously this phase hardcoded claude-sonnet-4-6, bypassing
+// config and forcing an Anthropic provider even when the brain runs on a
+// different backend (DeepSeek, cpa.raclaw, etc.).
+async function getProposeTakesModel(engine?: BrainEngine): Promise<string> {
+  const resolved = await resolveModel(engine ?? null, {
+    configKey: 'models.propose_takes',
+    tier: 'reasoning',
+    fallback: 'anthropic:claude-sonnet-4-6',
+  });
+  return normalizeModelId(resolved);
+}
+
 class ProposeTakesPhase extends BaseCyclePhase {
   readonly name = 'propose_takes' as CyclePhase;
   protected readonly budgetUsdKey = 'cycle.propose_takes.budget_usd';
@@ -303,6 +319,9 @@ class ProposeTakesPhase extends BaseCyclePhase {
     _ctx: OperationContext,
     opts: ProposeTakesOpts,
   ): Promise<{ summary: string; details: Record<string, unknown>; status?: PhaseStatus }> {
+    // v0.42.x (raclaw): resolve model from config (models.propose_takes / tier.reasoning)
+    // so the extractor no longer forces Anthropic. opts.model still wins for tests.
+    const proposeModel = opts.model ?? await getProposeTakesModel(engine);
     const extractor = opts.extractor ?? defaultExtractor;
     const promptVersion = opts.promptVersion ?? PROPOSE_TAKES_PROMPT_VERSION;
     const pageLimit = opts.pageLimit ?? 100;
@@ -359,7 +378,7 @@ class ProposeTakesPhase extends BaseCyclePhase {
 
       // Budget pre-check before the LLM call. Estimate: ~1500 input tokens + 500 output.
       const budget = this.checkBudget({
-        modelId: opts.model ?? 'claude-sonnet-4-6',
+        modelId: proposeModel,
         estimatedInputTokens: 1500,
         maxOutputTokens: 500,
       });
@@ -378,7 +397,7 @@ class ProposeTakesPhase extends BaseCyclePhase {
           pagePath: page.slug,
           pageBody: body,
           existingTakes,
-          modelHint: opts.model,
+          modelHint: opts.model ?? proposeModel,
         });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -408,7 +427,7 @@ class ProposeTakesPhase extends BaseCyclePhase {
             p.weight,
             p.domain ?? null,
             JSON.stringify(existingTakes),
-            opts.model ?? 'claude-sonnet-4-6',
+            opts.model ?? proposeModel,
           ],
         );
         result.proposals_inserted += 1;
