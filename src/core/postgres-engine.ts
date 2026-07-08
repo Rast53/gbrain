@@ -38,7 +38,7 @@ import type {
   Page, PageInput, PageFilters, PageType,
   Chunk, ChunkInput, StaleChunkRow, StalePageRow,
   SearchResult, SearchOpts,
-  Link, GraphNode, GraphPath,
+  Link, GraphNode, GraphPath, PageMeta,
   TimelineEntry, TimelineInput, TimelineOpts,
   RawData,
   PageVersion,
@@ -3228,6 +3228,54 @@ export class PostgresEngine implements BrainEngine {
       ORDER BY p.slug
     `;
     return rows as unknown as Array<{ slug: string; title: string; domain: string | null }>;
+  }
+
+  async getBulkPageMeta(
+    slugs: string[],
+    opts?: { sourceId?: string; sourceIds?: string[] },
+  ): Promise<Map<string, PageMeta>> {
+    const sql = this.sql;
+    const out = new Map<string, PageMeta>();
+    if (slugs.length === 0) return out;
+    const unique = [...new Set(slugs)];
+    // postgres.js fragment composition — mirrors findOrphanPages' sourceFilter.
+    const sourceFilter =
+      opts?.sourceIds && opts.sourceIds.length > 0
+        ? sql`AND p.source_id = ANY(${opts.sourceIds}::text[])`
+        : opts?.sourceId
+          ? sql`AND p.source_id = ${opts.sourceId}`
+          : sql``;
+    const rows = await sql`
+      SELECT
+        p.slug       AS slug,
+        p.title      AS title,
+        p.type       AS type,
+        t.tag        AS tag,
+        p.updated_at AS updated_at
+      FROM pages p
+      LEFT JOIN tags t ON t.page_id = p.id
+      WHERE p.slug = ANY(${unique}::text[])
+        AND p.deleted_at IS NULL
+        ${sourceFilter}
+      ORDER BY p.slug, t.tag
+    `;
+    for (const r of rows as unknown as Array<{ slug: string; title: string; type: string; tag: string | null; updated_at: Date | string }>) {
+      let meta = out.get(r.slug);
+      if (!meta) {
+        meta = {
+          slug: r.slug,
+          title: r.title,
+          type: r.type,
+          tags: [],
+          updated_at: new Date(r.updated_at).toISOString(),
+        };
+        out.set(r.slug, meta);
+      }
+      if (r.tag != null && !meta.tags.includes(r.tag)) {
+        meta.tags.push(r.tag);
+      }
+    }
+    return out;
   }
 
   // Tags

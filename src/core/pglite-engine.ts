@@ -28,7 +28,7 @@ import type {
   Page, PageInput, PageFilters, PageType,
   Chunk, ChunkInput, StaleChunkRow, StalePageRow,
   SearchResult, SearchOpts,
-  Link, GraphNode, GraphPath,
+  Link, GraphNode, GraphPath, PageMeta,
   TimelineEntry, TimelineInput, TimelineOpts,
   RawData,
   PageVersion,
@@ -3129,6 +3129,62 @@ export class PGLiteEngine implements BrainEngine {
       params
     );
     return rows as Array<{ slug: string; title: string; domain: string | null }>;
+  }
+
+  async getBulkPageMeta(
+    slugs: string[],
+    opts?: { sourceId?: string; sourceIds?: string[] },
+  ): Promise<Map<string, PageMeta>> {
+    const out = new Map<string, PageMeta>();
+    if (slugs.length === 0) return out;
+    // Dedupe so duplicate slugs collapse to one result row (PG ANY() would
+    // otherwise return one row per match, which is harmless but wasteful).
+    const unique = [...new Set(slugs)];
+    let sourceFilter = '';
+    const params: unknown[] = [unique];
+    if (opts?.sourceIds && opts.sourceIds.length > 0) {
+      params.push(opts.sourceIds);
+      sourceFilter = `AND p.source_id = ANY($${params.length}::text[])`;
+    } else if (opts?.sourceId) {
+      params.push(opts.sourceId);
+      sourceFilter = `AND p.source_id = $${params.length}`;
+    }
+    // Single round-trip: LEFT JOIN tags so a page with zero tags still
+    // surfaces (t.tag NULL). ORDER BY keeps deterministic test output.
+    // `deleted_at IS NULL` filters soft-deleted pages. Only the columns the
+    // portal's graph view needs — NO compiled_truth / chunks / timeline.
+    const { rows } = await this.db.query(
+      `SELECT
+         p.slug       AS slug,
+         p.title      AS title,
+         p.type       AS type,
+         t.tag        AS tag,
+         p.updated_at AS updated_at
+       FROM pages p
+       LEFT JOIN tags t ON t.page_id = p.id
+       WHERE p.slug = ANY($1::text[])
+         AND p.deleted_at IS NULL
+         ${sourceFilter}
+       ORDER BY p.slug, t.tag`,
+      params,
+    );
+    for (const r of rows as Array<{ slug: string; title: string; type: string; tag: string | null; updated_at: Date | string }>) {
+      let meta = out.get(r.slug);
+      if (!meta) {
+        meta = {
+          slug: r.slug,
+          title: r.title,
+          type: r.type,
+          tags: [],
+          updated_at: new Date(r.updated_at).toISOString(),
+        };
+        out.set(r.slug, meta);
+      }
+      if (r.tag != null && !meta.tags.includes(r.tag)) {
+        meta.tags.push(r.tag);
+      }
+    }
+    return out;
   }
 
   // Tags

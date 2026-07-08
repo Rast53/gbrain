@@ -2,7 +2,7 @@ import type {
   Page, PageInput, PageFilters, GetPageOpts,
   Chunk, ChunkInput, StaleChunkRow, StalePageRow,
   SearchResult, SearchOpts,
-  Link, GraphNode, GraphPath, RelationalFanoutRow, RelationalFanoutOpts,
+  Link, GraphNode, GraphPath, PageMeta, RelationalFanoutRow, RelationalFanoutOpts,
   TimelineEntry, TimelineInput, TimelineOpts,
   RawData,
   PageVersion,
@@ -1311,6 +1311,28 @@ export interface BrainEngine {
     sourceId?: string;
     sourceIds?: string[];
   }): Promise<Array<{ slug: string; title: string; domain: string | null }>>;
+
+  /**
+   * Batch metadata fetch for the `graph_bulk_info` MCP op (spec
+   * 2026-07-08-gbrain-frontend-unification-design §6.2). Powers the
+   * gbrain-portal /graph view: it needs {title, type, tags, updated_at} for
+   * every node in a subgraph in ONE query, without an N+1 `getPage`-per-node
+   * storm that would also drag compiled_truth/chunks over the wire.
+   *
+   * Single round-trip: one parameterized `WHERE slug = ANY($1)` query joins
+   * pages → tags, then the caller collapses the flat rows into a slug-keyed
+   * Map (a page with K tags yields K rows). Soft-deleted pages
+   * (`deleted_at IS NOT NULL`) are excluded. Unknown slugs are simply absent
+   * from the result — callers MUST NOT treat a missing key as an error.
+   *
+   * Source-scoped via `{sourceId?, sourceIds?}` (same precedence ladder as
+   * every other read-side method; MCP callers thread `sourceScopeOpts(ctx)`).
+   * Empty input returns an empty Map (no query).
+   */
+  getBulkPageMeta(
+    slugs: string[],
+    opts?: { sourceId?: string; sourceIds?: string[] },
+  ): Promise<Map<string, PageMeta>>;
 
   // Tags
   /**

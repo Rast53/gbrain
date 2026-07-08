@@ -1975,6 +1975,64 @@ const traverse_graph: Operation = {
   cliHints: { name: 'graph', positional: ['slug'] },
 };
 
+/**
+ * Hard cap on the number of slugs `graph_bulk_info` will accept in one call.
+ * 500 is the spec'd ceiling (2026-07-08-gbrain-frontend-unification-design
+ * §6.2): the portal's /graph subgraph windows never render more than a few
+ * hundred nodes, and capping at the op layer (NOT the engine layer) means an
+ * abusive MCP caller can't pass slug[] of arbitrary length to force a giant
+ * IN-clause query. The engine method itself has no cap — internal batch
+ * callers (e.g. a future bulk enrichment pass) bypass this op.
+ */
+const BULK_INFO_CAP = 500;
+
+const graph_bulk_info: Operation = {
+  name: 'graph_bulk_info',
+  description: 'Minimal metadata (title, type, tags, updated_at) for a batch of slugs. No content. Used by graph rendering to avoid N+1 get_page calls. Cap 500 slugs.',
+  params: {
+    slugs: {
+      type: 'array',
+      required: true,
+      items: { type: 'string' },
+      description: `Up to ${BULK_INFO_CAP} page slugs. Unknown slugs are skipped silently.`,
+    },
+  },
+  handler: async (ctx, p) => {
+    const slugs = p.slugs;
+    if (!Array.isArray(slugs)) {
+      throw new OperationError('invalid_params', '`slugs` must be an array of strings.');
+    }
+    if (slugs.length > BULK_INFO_CAP) {
+      throw new OperationError(
+        'invalid_params',
+        `\`slugs\` exceeds the ${BULK_INFO_CAP}-slug batch cap (got ${slugs.length}).`,
+      );
+    }
+    if (slugs.length === 0) return {};
+    // Source-scope the read the same way every other graph read op does
+    // (traverse_graph, get_links) — via the canonical federated > scalar >
+    // nothing precedence ladder. An auth'd single-source MCP client only sees
+    // metadata for pages in its own source; an unscoped local CLI caller sees
+    // the cross-source view (back-compat).
+    const scope = sourceScopeOpts(ctx);
+    const map = await ctx.engine.getBulkPageMeta(slugs as string[], scope);
+    // Collapse the slug-keyed Map into the JSON-RPC-friendly plain object
+    // shape { [slug]: { title, type, tags, updated_at } }.
+    const out: Record<string, { title: string; type: string; tags: string[]; updated_at: string }> = {};
+    for (const [slug, meta] of map) {
+      out[slug] = {
+        title: meta.title,
+        type: meta.type,
+        tags: meta.tags,
+        updated_at: meta.updated_at,
+      };
+    }
+    return out;
+  },
+  scope: 'read',
+  cliHints: { name: 'graph-bulk-info' },
+};
+
 // --- Timeline ---
 
 const add_timeline_entry: Operation = {
@@ -4737,6 +4795,8 @@ export const operations: Operation[] = [
   add_tag, remove_tag, get_tags,
   // Links
   add_link, remove_link, get_links, get_backlinks, list_link_sources, traverse_graph,
+  // v0.42.35 (spec 2026-07-08 §6.2): batch node metadata for portal /graph rendering.
+  graph_bulk_info,
   // Timeline
   add_timeline_entry, get_timeline,
   // Admin

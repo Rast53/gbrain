@@ -1200,6 +1200,23 @@ export interface GraphPath {
 }
 
 /**
+ * Minimal page metadata for the `graph_bulk_info` batch op (spec
+ * 2026-07-08-gbrain-frontend-unification-design §6.2). Deliberately carries
+ * NO content/chunks/compiled_truth/timeline/frontmatter — the portal's /graph
+ * view fetches this for every node in a subgraph to render labels + colors,
+ * and pulling full markdown per node would be an N+1-shaped payload blowup.
+ * `updated_at` is an ISO string (engine serialize boundary) so the JSON-RPC
+ * response is wire-safe.
+ */
+export interface PageMeta {
+  slug: string;
+  title: string;
+  type: string;
+  tags: string[];
+  updated_at: string;
+}
+
+/**
  * One reached node from a typed-edge relational fan-out (v0.43). The recall
  * arm hydrates these into SearchResult rows and injects them as a fourth RRF
  * arm. Aggregated to the page level: `hop` is the shortest distance from any
