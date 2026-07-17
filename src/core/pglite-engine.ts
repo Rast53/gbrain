@@ -1115,11 +1115,12 @@ export class PGLiteEngine implements BrainEngine {
     // Clamp to non-negative integer; cascade through FKs (content_chunks,
     // page_links, chunk_relations) on DELETE.
     const hours = Math.max(0, Math.floor(olderThanHours));
-    const { rows } = await this.db.query(
     // P1-R7 (TASK-gbrain-canonical-post-closeout-hardening): frozen
     // (legacy_read_only) sources are never purged — a DELETE on default
     // rows trips the T707 write freeze by design; frozen sources keep
     // even their soft-deleted rows.
+    // Comments stay outside the SQL string argument (inside `` would break PGLite).
+    const { rows } = await this.db.query(
       `DELETE FROM pages
        WHERE deleted_at IS NOT NULL
          AND deleted_at < now() - ($1 || ' hours')::interval
