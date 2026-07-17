@@ -267,10 +267,16 @@ export async function planRetrievalUpgrade(engine: BrainEngine): Promise<Retriev
   const isOnZE = currentEmbeddingModel.startsWith('zeroentropyai:');
   const isLegacyDefault = currentEmbeddingModel === 'openai:text-embedding-3-large';
 
+  // P1-R4.2: the ZE migration offer requires explicit DB-plane opt-in
+  // (`gbrain config set ze_switch_opt_in true`). A deployment with a
+  // deliberate non-ZE production contract (P1-R4.1: OpenRouter
+  // text-embedding-3-small) must never be nudged toward the ZE target.
+  const zeOptIn = (await engine.getConfig('ze_switch_opt_in')) === 'true';
   const zeSwitchOffered =
     !isOnZE
     && !alreadyDeclined
     && !applied
+    && zeOptIn
     && (isLegacyDefault || totalPages > ZE_MIN_PAGES_FOR_OFFER);
 
   // Chunker-bump pending: same query the v0.32.7 prompt uses.
