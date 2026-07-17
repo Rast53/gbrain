@@ -420,7 +420,12 @@ export function resolveNativeBaseUrl(
 /** Configure the gateway. Called by cli.ts#connectEngine. Clears cached models. */
 export function configureGateway(config: AIGatewayConfig): void {
   _config = {
-    embedding_model: config.embedding_model ?? DEFAULT_EMBEDDING_MODEL,
+    // P1-R4.2: no silent provider default. Unset stays unset and
+    // getEmbeddingModel() hard-errors with an actionable message (was:
+    // ?? DEFAULT_EMBEDDING_MODEL — silently routed unconfigured brains to
+    // the ZE code default; the 2026-07-15 'requires ZEROENTROPY_API_KEY'
+    // global-maintenance failures came from exactly this).
+    embedding_model: config.embedding_model,
     // #1292/D6: do NOT fabricate a default here. Every gateway-internal reader
     // already applies `?? DEFAULT_EMBEDDING_DIMENSIONS` (getEmbeddingDimensions,
     // embedQuery, the dim self-check) or `?? 0` (the multimodal path, which is
@@ -630,7 +635,17 @@ function requireConfig(): AIGatewayConfig {
 
 /** Public config accessors (for schema setup, doctor, etc.). */
 export function getEmbeddingModel(): string {
-  return requireConfig().embedding_model ?? DEFAULT_EMBEDDING_MODEL;
+  const m = requireConfig().embedding_model;
+  // P1-R4.2: hard error when unset — no silent fallback to a provider code
+  // default. Estimators that legitimately tolerate "no embedding" already
+  // catch this (currentEmbeddingPricePerMTok / currentEmbeddingSignature).
+  if (!m) {
+    throw new AIConfigError(
+      'embedding_model is not configured (no silent provider default).',
+      'Set it explicitly: gbrain config set embedding_model <provider:model> — or set embedding_disabled for a no-embedding brain.',
+    );
+  }
+  return m;
 }
 
 export function getEmbeddingDimensions(): number {
@@ -707,7 +722,8 @@ export function diagnoseEmbedding(modelOverride?: string): EmbeddingDiagnosis {
 
   if (!_config) return { ok: false, reason: 'no_gateway_config' };
 
-  const modelStr = modelOverride ?? _config.embedding_model ?? DEFAULT_EMBEDDING_MODEL;
+  // P1-R4.2: no silent default — no_model_configured now actually fires.
+  const modelStr = modelOverride ?? _config.embedding_model;
   if (!modelStr) return { ok: false, reason: 'no_model_configured' };
 
   let parsed;

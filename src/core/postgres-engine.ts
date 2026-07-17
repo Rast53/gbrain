@@ -2127,7 +2127,18 @@ export class PostgresEngine implements BrainEngine {
     const params: unknown[] = [];
     let paramIdx = 1;
 
-    for (const chunk of chunks) {
+        // P1-R4.3 (TASK-gbrain-canonical-post-closeout-hardening, finding N4):
+    // record the ACTUAL configured embedding model on chunk rows. The static
+    // DEFAULT_EMBEDDING_MODEL fallback mislabeled 940 live OpenRouter-produced
+    // 1536-d chunks as 'zeroentropyai:zembed-1'. Gateway-unconfigured contexts
+    // (unit tests) keep the legacy default.
+    let actualChunkModel: string | null = null;
+    try {
+      const gw = await import('./ai/gateway.ts');
+      actualChunkModel = gw.getEmbeddingModel();
+    } catch { /* gateway unconfigured — legacy default below */ }
+
+for (const chunk of chunks) {
       const embeddingStr = chunk.embedding
         ? '[' + Array.from(chunk.embedding).join(',') + ']'
         : null;
@@ -2156,7 +2167,7 @@ export class PostgresEngine implements BrainEngine {
       if (embeddingImageStr) params.push(embeddingImageStr);
       params.push(
         pageId, chunk.chunk_index, chunk.chunk_text, chunk.chunk_source,
-        chunk.model || DEFAULT_EMBEDDING_MODEL, chunk.token_count || null,
+        chunk.model || actualChunkModel || DEFAULT_EMBEDDING_MODEL, chunk.token_count || null,
         chunk.language || null, chunk.symbol_name || null, chunk.symbol_type || null,
         chunk.start_line ?? null, chunk.end_line ?? null,
         parentPath, chunk.doc_comment || null, chunk.symbol_name_qualified || null,
