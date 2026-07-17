@@ -483,6 +483,13 @@ export interface CycleOpts {
    */
   signal?: AbortSignal;
   /**
+   * P1-R6: optional heartbeat sink for long phases. propose_takes calls
+   * it on a 30s time-gate; the autopilot-cycle handler wires it to
+   * minion_jobs.progress (job.updateProgress) so operator tooling sees a
+   * live phase position instead of a silent multi-minute phase.
+   */
+  onPhaseHeartbeat?: (phase: string, info: Record<string, unknown>) => void;
+  /**
    * v0.38: source-scope the cycle lock. When set, the cycle acquires
    * `gbrain-cycle:<source_id>` instead of the legacy global `gbrain-cycle`,
    * so two cycles for different sources can run concurrently on Postgres.
@@ -2182,7 +2189,15 @@ export async function runCycle(
           checkAborted(opts.signal);
           progress.start('cycle.propose_takes');
           const { runPhaseProposeTakes } = await import('./cycle/propose-takes.ts');
-          const { result, duration_ms } = await timePhase(() => runPhaseProposeTakes(calibrationCtx, { repoPath: brainDir ?? undefined }) as Promise<PhaseResult>);
+          // P1-R6: thread abort (cooperative cancel), the cycle reporter
+          // (page-granularity ticks) and the 30s heartbeat sink into the
+          // long phase; the 900s time budget applies its own default.
+          const { result, duration_ms } = await timePhase(() => runPhaseProposeTakes(calibrationCtx, {
+            repoPath: brainDir ?? undefined,
+            signal: opts.signal,
+            reporter: progress,
+            onHeartbeat: opts.onPhaseHeartbeat,
+          }) as Promise<PhaseResult>);
           result.duration_ms = duration_ms;
           phaseResults.push(result);
           progress.finish();
@@ -2506,11 +2521,18 @@ export async function runCycle(
   // covered. Mirrors the 30s grace timer in src/core/minions/worker.ts (the
   // setTimeout that logs "handler ignored abort signal (force-evicted)").
   const FORCE_EVICT_DEADLINE_MS = 30_000;
+  // P1-R6: measured per-phase wall-clock budgets replace the flat 30s
+  // noise (#1972 fired on every propose_takes run > 30s — baseline mean
+  // is 78s, so the warn was pure noise). propose_takes gets its measured
+  // 900s budget (N5: p100 617s × 1.4); unmeasured phases keep the legacy
+  // 30s force-evict attribution threshold. Alert only on budget exceed.
+  const PHASE_TIME_BUDGETS_MS: Record<string, number> = { propose_takes: 900_000 };
   for (const pr of phaseResults) {
-    if (pr.duration_ms > FORCE_EVICT_DEADLINE_MS) {
+    const phaseBudgetMs = PHASE_TIME_BUDGETS_MS[pr.phase] ?? FORCE_EVICT_DEADLINE_MS;
+    if (pr.duration_ms > phaseBudgetMs) {
       console.warn(
-        `[cycle] phase '${pr.phase}' ran ${Math.round(pr.duration_ms / 1000)}s, exceeding the ` +
-        `${FORCE_EVICT_DEADLINE_MS / 1000}s worker force-evict deadline — if this cycle is ` +
+        `[cycle] phase '${pr.phase}' ran ${Math.round(pr.duration_ms / 1000)}s, exceeding its ` +
+        `${Math.round(phaseBudgetMs / 1000)}s time budget — if this cycle is ` +
         `force-evicted on abort, '${pr.phase}' is the likely cause (#1972).`,
       );
     }

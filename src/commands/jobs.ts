@@ -1873,6 +1873,11 @@ export async function registerBuiltinHandlers(
       deadlineAtMs: job.deadlineAtMs, // #2781: phases budget sub-work from remaining time
       ...(sourceId ? { sourceId } : {}),
       ...(requestedPhases && requestedPhases.length > 0 ? { phases: requestedPhases as any } : {}),
+      // P1-R6: 30s phase heartbeat → minion_jobs.progress (fire-and-forget,
+      // same posture as the embed handler's onProgress).
+      onPhaseHeartbeat: (phase, info) => {
+        job.updateProgress({ phase, ...info }).catch(() => {});
+      },
       yieldBetweenPhases: async () => {
         // Yield to the event loop so worker lock-renewal can fire.
         await new Promise<void>(r => setImmediate(r));

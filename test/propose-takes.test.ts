@@ -332,6 +332,43 @@ describe('extractExistingTakesForDedup', () => {
 // ─── Phase integration ──────────────────────────────────────────────
 
 describe('runPhaseProposeTakes — phase integration', () => {
+  test('P1-R6: cooperative abort — pre-aborted signal exits before any page work', async () => {
+    const { engine } = buildMockEngine({
+      pages: [buildPage({ slug: 'a', body: 'Some prose body for extraction.' })],
+    });
+    let extractorCalls = 0;
+    const extractor: ProposeTakesExtractor = async () => {
+      extractorCalls += 1;
+      return [];
+    };
+    const ac = new AbortController();
+    ac.abort(new Error('worker timeout'));
+    const result = await runPhaseProposeTakes(buildCtx(engine), { extractor, signal: ac.signal });
+    // Cooperative abort ends in the warn posture (budget_exhausted), never throws.
+    expect(result.status).toBe('warn');
+    expect(extractorCalls).toBe(0);
+    expect(JSON.stringify(result.details)).toContain('cooperative abort');
+  });
+
+  test('P1-R6: time budget — mid-loop exceed ends in warn posture, work so far kept', async () => {
+    const pages = [1, 2, 3].map((i) =>
+      buildPage({ slug: `p${i}`, body: `Prose body ${i} with enough content to propose from.` }),
+    );
+    const { engine } = buildMockEngine({ pages });
+    let extractorCalls = 0;
+    const extractor: ProposeTakesExtractor = async () => {
+      extractorCalls += 1;
+      await new Promise((r) => setTimeout(r, 60));
+      return [];
+    };
+    const result = await runPhaseProposeTakes(buildCtx(engine), { extractor, timeBudgetMs: 50 });
+    expect(result.status).toBe('warn');
+    // Page 1 processed (its extractor call happened); the NEXT iteration's
+    // budget check stopped the loop before page 2's LLM call.
+    expect(extractorCalls).toBeLessThan(3);
+    expect(JSON.stringify(result.details)).toContain('time budget');
+  });
+
   test('happy path: scans pages, extracts proposals, writes via INSERT', async () => {
     const pages = [buildPage({ slug: 'wiki/concepts/network-effects', body: 'Marketplaces with cold-start liquidity always win.' })];
     const { engine, captured } = buildMockEngine({ pages });
