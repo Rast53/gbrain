@@ -10,6 +10,7 @@ import { WORKER_EXIT_RSS_WATCHDOG } from '../core/minions/worker-exit-codes.ts';
 import type { MinionJob, MinionJobStatus } from '../core/minions/types.ts';
 import type { PaceKeyOverrides } from '../core/pace-mode.ts';
 import { loadConfig, isThinClient } from '../core/config.ts';
+import { CYCLE_REQUIRED_PHASES, GLOBAL_REQUIRED_PHASES } from '../core/cycle/phase-registry.ts';
 import { callRemoteTool, unpackToolResult } from '../core/mcp-client.ts';
 import { parseNiceValue, applyNiceness, getEffectiveNiceness, formatNice } from '../core/minions/niceness.ts';
 
@@ -1743,6 +1744,7 @@ export async function registerBuiltinHandlers(
       brainDir: effectiveBrainDir,
       pull,
       signal: job.signal, // propagate abort so cycle bails on timeout/cancel
+      requiredPhases: CYCLE_REQUIRED_PHASES, // P1-R2.1: sync/extract are required
       ...(sourceId ? { sourceId } : {}),
       ...(requestedPhases && requestedPhases.length > 0 ? { phases: requestedPhases as any } : {}),
       // P1-R6: 30s phase heartbeat → minion_jobs.progress (fire-and-forget,
@@ -1756,9 +1758,14 @@ export async function registerBuiltinHandlers(
       },
     });
 
+    // P1-R2.2: result JSON records failed phases / source / disposition
+    // so the queue row is self-describing; report.status='failed' lands
+    // the job in 'failed' via the worker convention (no retry).
     return {
       partial: report.status === 'partial' || report.status === 'failed',
       status: report.status,
+      source_id: sourceId ?? null,
+      required_failures: report.required_failures ?? [],
       report,
     };
   });
@@ -1785,6 +1792,7 @@ export async function registerBuiltinHandlers(
       brainDir: repoPath,
       pull: false, // brain-wide DB/maintenance work never git-pulls
       signal: job.signal,
+      requiredPhases: GLOBAL_REQUIRED_PHASES, // P1-R2.1: embed/purge are required
       phases,
       yieldBetweenPhases: async () => { await new Promise<void>((r) => setImmediate(r)); },
     });
@@ -1802,6 +1810,8 @@ export async function registerBuiltinHandlers(
     return {
       partial: report.status === 'partial' || report.status === 'failed',
       status: report.status,
+      source_id: null,
+      required_failures: report.required_failures ?? [],
       report,
     };
   });
