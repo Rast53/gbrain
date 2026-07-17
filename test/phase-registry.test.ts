@@ -70,9 +70,12 @@ describe('P1-R2.2 deriveStatus truthful semantics', () => {
     expect(deriveStatus([pr('embed', 'ok'), pr('orphans', 'fail')], TOTALS_WORK, GLOBAL_REQUIRED_PHASES)).toBe('partial');
   });
 
-  test('warn-only → partial; all-fail → failed; empty → failed', () => {
+  test('warn-only → partial; optional-only all-fail → partial; empty → failed', () => {
     expect(deriveStatus([pr('sync', 'ok'), pr('lint', 'warn')], TOTALS_WORK, CYCLE_REQUIRED_PHASES)).toBe('partial');
-    expect(deriveStatus([pr('lint', 'fail'), pr('backlinks', 'fail')], TOTALS_WORK, CYCLE_REQUIRED_PHASES)).toBe('failed');
+    // Optional-only failures never page — even when every selected phase failed
+    // (e.g. lint-only cycle). Required failures already covered above.
+    expect(deriveStatus([pr('lint', 'fail'), pr('backlinks', 'fail')], TOTALS_WORK, CYCLE_REQUIRED_PHASES)).toBe('partial');
+    expect(deriveStatus([pr('lint', 'fail')], TOTALS_ZERO, CYCLE_REQUIRED_PHASES)).toBe('partial');
     expect(deriveStatus([], TOTALS_ZERO, CYCLE_REQUIRED_PHASES)).toBe('failed');
   });
 
