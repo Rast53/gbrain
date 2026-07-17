@@ -1022,17 +1022,25 @@ export class MinionWorker extends EventEmitter {
       // P1-R2.3: tw-msk-side alert outbox (drained by
       // gbrain-alert-emitter.timer; never depends on Helsinki).
       if (terminalStatus === 'failed' && handlerResult) {
-        try {
-          const { appendFailureOutbox } = await import('./failure-outbox.ts');
-          appendFailureOutbox({
-            job_id: job.id,
-            job_name: job.name,
-            source_id: handlerResult.source_id ?? null,
-            required_failures: handlerResult.required_failures ?? [],
-            attempts_made: job.attempts_made ?? null,
-          });
-        } catch (e) {
-          console.warn(`[worker] failure-outbox append failed (best effort): ${e instanceof Error ? e.message : String(e)}`);
+        // Only page on REQUIRED failures. A terminal 'failed' with empty
+        // required_failures should not exist after the deriveStatus fix, but
+        // gate here so optional-only / misclassified rows never spam Telegram.
+        const reqFails = Array.isArray(handlerResult.required_failures)
+          ? handlerResult.required_failures as unknown[]
+          : [];
+        if (reqFails.length > 0) {
+          try {
+            const { appendFailureOutbox } = await import('./failure-outbox.ts');
+            appendFailureOutbox({
+              job_id: job.id,
+              job_name: job.name,
+              source_id: handlerResult.source_id ?? null,
+              required_failures: reqFails,
+              attempts_made: job.attempts_made ?? null,
+            });
+          } catch (e) {
+            console.warn(`[worker] failure-outbox append failed (best effort): ${e instanceof Error ? e.message : String(e)}`);
+          }
         }
       }
 
