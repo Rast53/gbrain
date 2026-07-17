@@ -56,6 +56,7 @@ import type { PhaseStatus, CyclePhase } from '../cycle.ts';
 export const PROPOSE_TAKES_PROMPT_VERSION = 'v0.36.1.0-tuned-cat15';
 
 /**
+
  * Sentinel claim_text for the tombstone row written when a page extracts
  * ZERO gradeable claims. Without a tombstone the idempotency tuple is never
  * recorded, so every cycle re-spends an LLM call on unchanged zero-claim
@@ -65,6 +66,16 @@ export const PROPOSE_TAKES_PROMPT_VERSION = 'v0.36.1.0-tuned-cat15';
  * proposal; its only job is to make the next cycle a cache hit.
  */
 export const EMPTY_EXTRACTION_TOMBSTONE_TEXT = '(no gradeable claims)';
+
+
+
+ * P1-R6: measured wall-clock budget per propose_takes run. Baseline over
+ * 160 runs / 7d (finding N5): mean 78s, p100 617s → budget 900s (> p100 ×
+ * 1.4). Exceeding it ends the run in the warn posture (budget_exhausted),
+ * never as a thrown timeout — proposals already written stay idempotent.
+ */
+export const PROPOSE_TAKES_TIME_BUDGET_MS = 900_000;
+
 
 /**
  * Tuned extractor prompt, validated against the hand-labeled synthetic
@@ -146,6 +157,12 @@ export type ProposeTakesExtractor = (input: {
 export interface ProposeTakesOpts extends BasePhaseOpts {
   /** Brain repo root for fs-source page walking. Optional — defaults to engine pages. */
   repoPath?: string;
+  /** P1-R6: abort signal from cycle/worker — cooperative cancel between pages. */
+  signal?: AbortSignal;
+  /** P1-R6: wall-clock budget per run (default PROPOSE_TAKES_TIME_BUDGET_MS = 900s). */
+  timeBudgetMs?: number;
+  /** P1-R6: 30s heartbeat sink (wired to minion_jobs.progress via runCycle opts). */
+  onHeartbeat?: (phase: string, info: Record<string, unknown>) => void;
   /** Limit pages processed in this cycle (for triage / quick smoke). Default: 100. */
   pageLimit?: number;
   /** Inject the LLM call for tests; production uses gateway.chat. */
@@ -485,7 +502,12 @@ class ProposeTakesPhase extends BaseCyclePhase {
       opts.reporter.start('propose_takes.pages' as never, pages.length);
     }
 
+    const phaseStartMs = Date.now();
+    const timeBudgetMs = opts.timeBudgetMs ?? PROPOSE_TAKES_TIME_BUDGET_MS;
+    let lastHeartbeatMs = phaseStartMs;
+
     for (const page of pages) {
+
       // Phase deadline check. Break (not throw) so the phase returns a
       // partial result with deadline_hit:true; work already banked stays.
       const elapsedMs = Date.now() - phaseStartMs;
@@ -497,6 +519,40 @@ class ProposeTakesPhase extends BaseCyclePhase {
         result.deadline_hit = true;
         break;
       }
+
+
+
+      // P1-R6: cooperative abort — exit cleanly BEFORE the worker's 30s
+      // force-evict grace fires. Proposals already written are idempotent
+      // (composite unique key incl. prompt_version), so re-entry resumes
+      // without duplicates.
+      if (opts.signal?.aborted) {
+        result.warnings.push(
+          `cooperative abort at page ${result.pages_scanned}/${pages.length} — proposals so far are idempotent; next cycle resumes`,
+        );
+        result.budget_exhausted = true; // warn posture, not an error page
+        break;
+      }
+      // P1-R6: measured wall-clock budget (baseline N5: p100 = 617s → 900s).
+      if (Date.now() - phaseStartMs > timeBudgetMs) {
+        result.warnings.push(
+          `time budget ${Math.round(timeBudgetMs / 1000)}s exceeded at page ${result.pages_scanned}/${pages.length} — remaining pages resume next cycle (idempotent)`,
+        );
+        result.budget_exhausted = true;
+        break;
+      }
+      // P1-R6: 30s heartbeat into minion_jobs.progress when wired.
+      if (opts.onHeartbeat && Date.now() - lastHeartbeatMs > 30_000) {
+        lastHeartbeatMs = Date.now();
+        opts.onHeartbeat(this.name, {
+          pages_scanned: result.pages_scanned,
+          total_pages: pages.length,
+          proposals_inserted: result.proposals_inserted,
+          cache_hits: result.cache_hits,
+          cache_misses: result.cache_misses,
+        });
+      }
+
 
       result.pages_scanned += 1;
       this.tick(opts);
