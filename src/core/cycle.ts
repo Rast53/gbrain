@@ -48,6 +48,7 @@ import { join } from 'path';
 import { gbrainPath } from './config.ts';
 import type { BrainEngine } from './engine.ts';
 import { createProgress, type ProgressReporter } from './progress.ts';
+import { CYCLE_REQUIRED_PHASES } from './cycle/phase-registry.ts';
 import { getCliOptions, cliOptsToProgressOptions } from './cli-options.ts';
 import { tryAcquireDbLock, reapDeadHolderLocks, type DbLockHandle } from './db-lock.ts';
 import { assertValidSourceId } from './source-id.ts';
@@ -371,6 +372,13 @@ export interface CycleReport {
   reaped_dead_holder_locks?: { reaped: number; reapedIds: string[] };
   brain_dir: string | null;
   phases: PhaseResult[];
+  /**
+   * P1-R2.2: present when ≥1 required phase failed — the failed phases,
+   * their error class/code/message. The queue handler copies this into
+   * minion_jobs.result so the row is self-describing (P1-R2.2 contract:
+   * failed phases, source, error class, attempt, final disposition).
+   */
+  required_failures?: { phase: string; class: string; code: string; message: string }[];
   totals: {
     lint_fixes: number;
     backlinks_added: number;
@@ -489,6 +497,13 @@ export interface CycleOpts {
    * live phase position instead of a silent multi-minute phase.
    */
   onPhaseHeartbeat?: (phase: string, info: Record<string, unknown>) => void;
+  /**
+   * P1-R2.1: required-phase set for truthful outer status (P1-R2.2).
+   * Defaults to CYCLE_REQUIRED_PHASES (sync/extract); the
+   * autopilot-global-maintenance handler passes GLOBAL_REQUIRED_PHASES
+   * (embed/purge). See src/core/cycle/phase-registry.ts for rationale.
+   */
+  requiredPhases?: ReadonlySet<string>;
   /**
    * v0.38: source-scope the cycle lock. When set, the cycle acquires
    * `gbrain-cycle:<source_id>` instead of the legacy global `gbrain-cycle`,
@@ -2453,7 +2468,8 @@ export async function runCycle(
 
   const duration_ms = Math.round(performance.now() - start);
   const totals = extractTotals(phaseResults);
-  const status = deriveStatus(phaseResults, totals);
+  const requiredPhases = opts.requiredPhases ?? CYCLE_REQUIRED_PHASES;
+  const status = deriveStatus(phaseResults, totals, requiredPhases);
 
   // #1972 (Codex #9): a phase that breaks on abort returns status 'ok' with
   // partial counts. If the abort fired during the LAST selected phase, no
@@ -2521,6 +2537,15 @@ export async function runCycle(
     }
   }
 
+  const requiredFailures = phaseResults
+    .filter((p) => p.status === 'fail' && requiredPhases.has(p.phase))
+    .map((p) => ({
+      phase: p.phase,
+      class: p.error?.class ?? 'InternalError',
+      code: p.error?.code ?? 'UNKNOWN',
+      message: (p.error?.message ?? p.summary ?? '').slice(0, 300),
+    }));
+
   return {
     schema_version: '1',
     timestamp,
@@ -2528,6 +2553,7 @@ export async function runCycle(
     status: aborted ? 'partial' : status,
     ...(aborted ? { reason: 'aborted' } : {}),
     ...(reapedLocks ? { reaped_dead_holder_locks: reapedLocks } : {}),
+    ...(requiredFailures.length > 0 ? { required_failures: requiredFailures } : {}),
     brain_dir: opts.brainDir,
     phases: phaseResults,
     totals,
@@ -2607,8 +2633,18 @@ function extractTotals(phases: PhaseResult[]): CycleReport['totals'] {
   return t;
 }
 
-function deriveStatus(phases: PhaseResult[], totals: CycleReport['totals']): CycleStatus {
+/** @internal exported for tests (phase-registry.test.ts). */
+export function deriveStatus(
+  phases: PhaseResult[],
+  totals: CycleReport['totals'],
+  requiredPhases: ReadonlySet<string>,
+): CycleStatus {
   if (phases.length === 0) return 'failed';
+  // P1-R2.2: a required-phase failure flips the outer status to 'failed' —
+  // it can no longer hide inside 'partial' (and, via the worker's
+  // terminal-status convention, inside a 'completed' queue job).
+  const anyRequiredFailed = phases.some(p => p.status === 'fail' && requiredPhases.has(p.phase));
+  if (anyRequiredFailed) return 'failed';
   const anyFailed = phases.some(p => p.status === 'fail');
   const allFailed = phases.every(p => p.status === 'fail');
   const anyWarn = phases.some(p => p.status === 'warn');
