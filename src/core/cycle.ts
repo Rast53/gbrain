@@ -2488,10 +2488,12 @@ export function deriveStatus(
   // terminal-status convention, inside a 'completed' queue job).
   const anyRequiredFailed = phases.some(p => p.status === 'fail' && requiredPhases.has(p.phase));
   if (anyRequiredFailed) return 'failed';
+  // Optional-only failures (even if every selected phase failed) are 'partial':
+  // quality degraded, data plane intact — never hide behind a terminal 'failed'
+  // and never page (required_failures stays empty). Pre-fix allFailed→failed
+  // misclassified single-phase optional runs (e.g. lint-only harness) as failed.
   const anyFailed = phases.some(p => p.status === 'fail');
-  const allFailed = phases.every(p => p.status === 'fail');
   const anyWarn = phases.some(p => p.status === 'warn');
-  if (allFailed) return 'failed';
   if (anyFailed || anyWarn) return 'partial';
   // All phases 'ok' or 'skipped'. Distinguish clean (no activity) from ok (work done).
   const anyWork =
