@@ -1500,6 +1500,14 @@ const list_pages: Operation = {
       description: 'Sort order. Default updated_desc (matches pre-v0.29). Options: updated_desc, updated_asc, created_desc, slug.',
     },
     include_deleted: { type: 'boolean', description: 'v0.26.5: include soft-deleted pages (default: false). Used by restore workflows and operator diagnostics.' },
+    // P2-R1 (TASK-gbrain-canonical-post-closeout-hardening): optional per-request
+    // source filter. Must be within the caller grant; omit keeps federated/scalar
+    // auth scope. Response always includes source_id so multi-source catalogs can
+    // badge and key rows as (source_id, slug).
+    source_id: {
+      type: 'string',
+      description: 'Optional source filter within caller grant (e.g. raclaw-canonical). Omit to use the authenticated federated/scalar scope.',
+    },
   },
   handler: async (ctx, p) => {
     // Whitelist the sort enum at the handler before passing to the engine.
@@ -1509,6 +1517,7 @@ const list_pages: Operation = {
     const sort = rawSort && (LIST_PAGES_SORT_VALUES as readonly string[]).includes(rawSort)
       ? (rawSort as ListPagesSort)
       : undefined;
+
     // v0.34.1 (#861 — P0 leak seal): thread the auth'd client's source scope
     // into the listPages filter so an OAuth client scoped to src-A cannot
     // enumerate src-B pages. Pre-fix, ctx.sourceId / ctx.auth?.allowedSources
@@ -1516,7 +1525,8 @@ const list_pages: Operation = {
     // pages indiscriminately.
     // #3242: federatedSearchScope so unqualified listing spans federated
     // sources (same visibility set as search / get_page). Grants still win.
-    const scope = federatedSearchScope(ctx);
+        const sourceIdParam = typeof p.source_id === 'string' ? p.source_id : undefined;
+    const scope = federatedSearchScope(ctx, sourceIdParam);
     // The 100-row cap exists to protect remote MCP/OAuth transports from
     // unbounded result dumps. Local CLI callers (ctx.remote === false — the
     // same trust boundary that already bypasses scope enforcement, see the
@@ -1549,6 +1559,7 @@ const list_pages: Operation = {
     // updated_desc sort the dropped rows are always the OLDEST, i.e. exactly
     // the pages such consumers exist to find.
     const rows = await ctx.engine.listPages({
+
       type: p.type as any,
       tag: p.tag as string,
       limit: limit + 1,
@@ -1581,6 +1592,7 @@ const list_pages: Operation = {
       type: pg.type,
       title: pg.title,
       updated_at: pg.updated_at,
+      source_id: pg.source_id,
       ...(pg.deleted_at ? { deleted_at: pg.deleted_at } : {}),
     }));
   },
