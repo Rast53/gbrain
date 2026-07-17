@@ -32,6 +32,8 @@ export const EMBEDDING_PRICING: Record<string, EmbeddingPricing> = {
   // OpenAI (https://developers.openai.com/api/docs/pricing, verified 2026-07-28)
   'openai:text-embedding-3-large': { pricePerMTok: 0.13 },
   'openai:text-embedding-3-small': { pricePerMTok: 0.02 },
+  // OpenRouter pass-through — same underlying OpenAI rate (P1-R4.5).
+  'openrouter:openai/text-embedding-3-small': { pricePerMTok: 0.02 },
   // Legacy OpenAI ada (still common in older brains)
   'openai:text-embedding-ada-002': { pricePerMTok: 0.10 },
   // Voyage (https://docs.voyageai.com/docs/pricing, verified 2026-07-28)
