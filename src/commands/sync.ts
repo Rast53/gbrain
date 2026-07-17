@@ -962,6 +962,45 @@ function git(
   }).trim();
 }
 
+// P1-R3.3 (TASK-gbrain-canonical-post-closeout-hardening): error fidelity for
+// git invocations. A bare `catch {}` used to map ANY failure (spawn error,
+// safe.directory rejection, timeout, OOM kill) to the misleading "No commits
+// in repo" message, hiding the true failure class — observed live as 16 ms
+// sync-phase failures on a healthy checkout (finding N2). Extract the Node
+// execFileSync error shape (status/signal/stderr) so call sites rethrow with
+// the real cause; "No commits" is reserved for a genuinely unborn HEAD.
+interface GitFailureDetails {
+  errorClass: string;
+  exitCode: number | null;
+  signal: string | null;
+  stderr: string;
+}
+
+function describeGitFailure(e: unknown): GitFailureDetails {
+  const err = (e ?? undefined) as Record<string, unknown> | undefined;
+  const rawStderr = err?.stderr;
+  const stderr = typeof rawStderr === 'string' ? rawStderr : rawStderr ? String(rawStderr) : '';
+  const ctor = (err?.constructor as { name?: string } | undefined)?.name;
+  return {
+    errorClass: ctor ?? typeof e,
+    exitCode: typeof err?.status === 'number' ? (err.status as number) : null,
+    signal: typeof err?.signal === 'string' ? (err.signal as string) : null,
+    stderr: stderr.trim().slice(0, 500),
+  };
+}
+
+function isUnbornHead(stderr: string): boolean {
+  return /ambiguous argument 'HEAD'|Needed a single revision|unknown revision|bad default revision|does not have any commits/i.test(stderr);
+}
+
+function gitFailureMessage(op: string, repoPath: string, f: GitFailureDetails): string {
+  return (
+    `git ${op} failed in ${repoPath} ` +
+    `(class=${f.errorClass} exit=${f.exitCode ?? '-'} signal=${f.signal ?? '-'}): ` +
+    `${f.stderr || '<no stderr>'}`
+  );
+}
+
 /**
  * #753/#774: walk up from inputPath to the nearest git repo root via
  * `git -C <path> rev-parse --show-toplevel`. Handles worktrees and submodules
@@ -1166,7 +1205,6 @@ function isPathSafe(filePath: string, gitRoot: string): boolean {
     return false;
   }
 }
-
 function hasOriginRemote(repoPath: string): boolean {
   try {
     execFileSync('git', buildGitInvocation(repoPath, ['remote', 'get-url', 'origin']), {
@@ -1184,8 +1222,14 @@ function isDetachedHead(repoPath: string): boolean {
   try {
     git(repoPath, ['symbolic-ref', '--quiet', 'HEAD']);
     return false;
-  } catch {
-    return true;
+  } catch (e) {
+    const f = describeGitFailure(e);
+    // symbolic-ref --quiet exits 1 with empty stderr on a detached HEAD — that
+    // is the ONLY outcome meaning "detached". Anything else (spawn error,
+    // safe.directory, timeout) is a git invocation failure: surface it loudly
+    // instead of silently misreporting the repo as detached (P1-R3.3).
+    if (f.exitCode === 1 && f.stderr === '') return true;
+    throw new Error(gitFailureMessage('symbolic-ref probe', repoPath, f));
   }
 }
 
@@ -2057,7 +2101,9 @@ async function performSyncInner(engine: BrainEngine, opts: SyncOpts): Promise<Sy
   let headCommit: string;
   try {
     headCommit = git(gitContextRoot, ['rev-parse', 'HEAD']);
-  } catch {
+  } catch (e) {
+    const f = describeGitFailure(e);
+    if (isUnbornHead(f.stderr)) {
     // #2964: unborn-HEAD recovery. `.git` exists (discoverGitRoot succeeded
     // above) but there are zero commits — e.g. a prior self-heal `git init`
     // ran but the process died before the baseline commit landed, leaving
@@ -2083,6 +2129,9 @@ async function performSyncInner(engine: BrainEngine, opts: SyncOpts): Promise<Sy
     serr(`[gbrain] auto-recovery: repo has no commits yet, creating baseline commit ${gitContextRoot}.`);
     createSyncBaselineCommit(gitContextRoot);
     headCommit = git(gitContextRoot, ['rev-parse', 'HEAD']);
+    } else {
+      throw new Error(gitFailureMessage('rev-parse HEAD', gitContextRoot, f));
+    }
   }
 
   // #2964: self-heal deliberately does NOT special-case db_only/.gitignore
@@ -2123,9 +2172,19 @@ async function performSyncInner(engine: BrainEngine, opts: SyncOpts): Promise<Sy
   if (lastCommit) {
     let objectPresent = true;
     try {
-      git(gitContextRoot, ['cat-file', '-t', lastCommit]);
-    } catch {
+      git(repoPath, ['cat-file', '-t', lastCommit]);
+    } catch (e) {
       objectPresent = false;
+      const f = describeGitFailure(e);
+      // A non-"object absent" failure (spawn error, safe.directory, timeout)
+      // means the bookmark could not be classified at all — log the true class
+      // so this fallback stops hiding invocation breakage (P1-R3.3).
+      if (!/Not a valid object/i.test(f.stderr)) {
+        serr(
+          `[sync] warning: cat-file probe for ${lastCommit.slice(0, 12)} failed ` +
+          `(class=${f.errorClass} exit=${f.exitCode ?? '-'}) — treating bookmark as absent.`,
+        );
+      }
     }
     if (!objectPresent) {
       // Object gc'd after a history rewrite — nothing to diff against, so fall
