@@ -1214,9 +1214,17 @@ export class PostgresEngine implements BrainEngine {
     // cascades through content_chunks, page_links, chunk_relations via FKs.
     const hours = Math.max(0, Math.floor(olderThanHours));
     const rows = await sql`
+    // P1-R7 (TASK-gbrain-canonical-post-closeout-hardening): frozen
+    // (legacy_read_only) sources are never purged — a DELETE on default
+    // rows trips the T707 write freeze by design; frozen sources keep
+    // even their soft-deleted rows.
       DELETE FROM pages
       WHERE deleted_at IS NOT NULL
         AND deleted_at < now() - (${hours} || ' hours')::interval
+        AND source_id NOT IN (
+          SELECT id FROM sources
+          WHERE COALESCE((config->>'legacy_read_only')::boolean, false)
+        )
       RETURNING slug
     `;
     const slugs = rows.map((r) => r.slug as string);
