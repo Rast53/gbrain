@@ -56,6 +56,17 @@ interface ReindexOpts {
    * the counters (reindexed/skipped/failed) are JS-single-thread atomic.
    */
   workers?: number;
+  /**
+   * P2-R6 (TASK-gbrain-canonical-post-closeout-hardening): scope the sweep
+   * to one source_id (e.g. raclaw-canonical). Without this, ORDER BY id
+   * pulls memory/proposed first and pollutes a canonical-only migration.
+   */
+  sourceId?: string;
+  /**
+   * P2-R6: exclude extract_receipt pages (generated maintenance noise).
+   * Default true for operator safety; pass --include-receipts to disable.
+   */
+  excludeReceipts?: boolean;
 }
 
 export interface ReindexResult {
@@ -68,18 +79,22 @@ export interface ReindexResult {
 }
 
 function parseArgs(args: string[]): ReindexOpts {
-  const out: ReindexOpts = {};
+  const out: ReindexOpts = { excludeReceipts: true };
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === '--markdown') continue; // routing flag, no value
     if (a === '--dry-run') out.dryRun = true;
     else if (a === '--json') out.json = true;
     else if (a === '--no-embed') out.noEmbed = true;
+    else if (a === '--include-receipts') out.excludeReceipts = false;
     else if (a === '--limit') {
       const v = parseInt(args[++i] ?? '', 10);
       if (Number.isFinite(v) && v > 0) out.limit = v;
     } else if (a === '--repo') {
       out.repoPath = args[++i];
+    } else if (a === '--source' || a === '--source-id') {
+      const v = args[++i];
+      if (v) out.sourceId = v;
     } else if (a === '--workers' || a === '--concurrency') {
       // v0.41.15.0 (T10, D9): per-batch parallel workers.
       const v = parseInt(args[++i] ?? '', 10);
@@ -110,15 +125,24 @@ function parseArgs(args: string[]): ReindexOpts {
  * hook for post-v81 brains. The simple `chunker_version OR mode IS NULL`
  * predicate covers the headline upgrade case the wave is shipping.
  */
-async function countPending(engine: BrainEngine): Promise<number> {
-  const rows = await engine.executeRaw<{ count: string | number }>(
-    `SELECT COUNT(*)::bigint AS count
+async function countPending(
+  engine: BrainEngine,
+  opts: { sourceId?: string; excludeReceipts?: boolean } = {},
+): Promise<number> {
+  const params: unknown[] = [MARKDOWN_CHUNKER_VERSION];
+  let sql = `SELECT COUNT(*)::bigint AS count
        FROM pages
       WHERE page_kind = 'markdown'
         AND (chunker_version < $1 OR contextual_retrieval_mode IS NULL)
-        AND deleted_at IS NULL`,
-    [MARKDOWN_CHUNKER_VERSION],
-  );
+        AND deleted_at IS NULL`;
+  if (opts.sourceId) {
+    params.push(opts.sourceId);
+    sql += ` AND source_id = $${params.length}`;
+  }
+  if (opts.excludeReceipts !== false) {
+    sql += ` AND COALESCE(type, '') <> 'extract_receipt'`;
+  }
+  const rows = await engine.executeRaw<{ count: string | number }>(sql, params);
   return Number(rows[0]?.count ?? 0);
 }
 
@@ -127,17 +151,27 @@ async function countPending(engine: BrainEngine): Promise<number> {
  * partial completion pick up where they left off without re-doing pages
  * whose chunker_version was already bumped.
  */
-async function readBatch(engine: BrainEngine, batchSize: number): Promise<Array<{ slug: string; source_path: string | null; compiled_truth: string; source_id: string }>> {
-  return engine.executeRaw(
-    `SELECT slug, source_path, compiled_truth, source_id
+async function readBatch(
+  engine: BrainEngine,
+  batchSize: number,
+  opts: { sourceId?: string; excludeReceipts?: boolean } = {},
+): Promise<Array<{ slug: string; source_path: string | null; compiled_truth: string; source_id: string }>> {
+  const params: unknown[] = [MARKDOWN_CHUNKER_VERSION];
+  let sql = `SELECT slug, source_path, compiled_truth, source_id
        FROM pages
       WHERE page_kind = 'markdown'
         AND (chunker_version < $1 OR contextual_retrieval_mode IS NULL)
-        AND deleted_at IS NULL
-      ORDER BY id ASC
-      LIMIT $2`,
-    [MARKDOWN_CHUNKER_VERSION, batchSize],
-  );
+        AND deleted_at IS NULL`;
+  if (opts.sourceId) {
+    params.push(opts.sourceId);
+    sql += ` AND source_id = $${params.length}`;
+  }
+  if (opts.excludeReceipts !== false) {
+    sql += ` AND COALESCE(type, '') <> 'extract_receipt'`;
+  }
+  params.push(batchSize);
+  sql += ` ORDER BY id ASC LIMIT $${params.length}`;
+  return engine.executeRaw(sql, params);
 }
 
 export async function runReindex(engine: BrainEngine, args: string[]): Promise<ReindexResult> {
@@ -149,13 +183,13 @@ export async function runReindex(engine: BrainEngine, args: string[]): Promise<R
     if (opts.json) {
       process.stdout.write(JSON.stringify({ error: 'gbrain reindex requires a target flag, e.g. --markdown' }) + '\n');
     } else {
-      process.stderr.write('Usage: gbrain reindex --markdown [--limit N] [--dry-run] [--json] [--repo PATH]\n');
+      process.stderr.write('Usage: gbrain reindex --markdown [--source ID] [--limit N] [--dry-run] [--json] [--repo PATH] [--no-embed] [--include-receipts]\n');
     }
     setCliExitVerdict(2);
     return { pending: 0, reindexed: 0, skipped: 0, failed: 0, dryRun: !!opts.dryRun, chunkerVersion: MARKDOWN_CHUNKER_VERSION };
   }
 
-  const pending = await countPending(engine);
+  const pending = await countPending(engine, { sourceId: opts.sourceId, excludeReceipts: opts.excludeReceipts });
 
   if (opts.json && pending === 0) {
     process.stdout.write(JSON.stringify({ pending: 0, reindexed: 0, skipped: 0, failed: 0, chunker_version: MARKDOWN_CHUNKER_VERSION }) + '\n');
@@ -171,7 +205,7 @@ export async function runReindex(engine: BrainEngine, args: string[]): Promise<R
 
   if (opts.dryRun) {
     if (opts.json) {
-      process.stdout.write(JSON.stringify({ pending, would_reindex: target, dry_run: true, chunker_version: MARKDOWN_CHUNKER_VERSION }) + '\n');
+      process.stdout.write(JSON.stringify({ pending, would_reindex: target, dry_run: true, chunker_version: MARKDOWN_CHUNKER_VERSION, source_id: opts.sourceId ?? null, exclude_receipts: opts.excludeReceipts !== false }) + '\n');
     } else {
       process.stderr.write(`[reindex] DRY-RUN: would re-chunk ${target} of ${pending} pending markdown pages.\n`);
     }
@@ -190,7 +224,7 @@ export async function runReindex(engine: BrainEngine, args: string[]): Promise<R
   while (reindexed + skipped + failed < target) {
     const remaining = target - (reindexed + skipped + failed);
     const batchSize = Math.min(BATCH, remaining);
-    const batch = await readBatch(engine, batchSize);
+    const batch = await readBatch(engine, batchSize, { sourceId: opts.sourceId, excludeReceipts: opts.excludeReceipts });
     if (batch.length === 0) break;
 
     // v0.41.15.0 (T10, D9): per-batch sliding pool. Counters are JS-
