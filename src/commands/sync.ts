@@ -1845,6 +1845,21 @@ async function performSyncInner(engine: BrainEngine, opts: SyncOpts): Promise<Sy
       detachedWorkingTreeManifest.renamed.length > 0);
 
   if (lastCommit === headCommit && !versionMismatch && !versionNeverSet && !hasDetachedWorkingTreeChanges) {
+    // P1-R3.5 (TASK-gbrain-canonical-post-closeout-hardening, finding N9):
+    // last_sync_at previously advanced ONLY together with last_commit (see
+    // writeSyncAnchor), so an up_to_date sync left the freshness bookmark
+    // stale forever — and the autopilot's freshness targeting re-dispatched a
+    // targeted sync for the same source on every tick (observed live: sources
+    // reported stale for 8-13h while targeted syncs succeeded up_to_date).
+    // Stamp the liveness bookmark on successful no-op sync. Failure paths
+    // never reach this write, so last_sync_at keeps its "last SUCCESSFUL
+    // sync" semantics; content freshness stays on newest_content_at.
+    if (opts.sourceId) {
+      await engine.executeRaw(
+        `UPDATE sources SET last_sync_at = now() WHERE id = $1`,
+        [opts.sourceId],
+      );
+    }
     return {
       status: 'up_to_date',
       fromCommit: lastCommit,
