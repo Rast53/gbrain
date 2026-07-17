@@ -853,7 +853,10 @@ export class MinionQueue {
    * died between completeJob and worker's prior post-call resolveParent,
    * stranding the parent in waiting-children forever.
    */
-  async completeJob(id: number, lockToken: string, result?: Record<string, unknown>): Promise<MinionJob | null> {
+  // P1-R2.2: opts.terminalStatus lets a FINISHED job land in 'failed'
+  // without failJob — no retry, no backoff, attempts_made untouched
+  // (preserves the anti-retry-storm intent of jobs.ts:1640).
+  async completeJob(id: number, lockToken: string, result?: Record<string, unknown>, opts?: { terminalStatus?: 'completed' | 'failed' }): Promise<MinionJob | null> {
     return this.engine.transaction(async (tx) => {
       // Peek at parent_job_id before the UPDATE so we can lock the parent row
       // FIRST. Without this SELECT FOR UPDATE, two siblings completing
@@ -873,7 +876,7 @@ export class MinionQueue {
       }
 
       const rows = await tx.executeRaw<Record<string, unknown>>(
-        `UPDATE minion_jobs SET status = 'completed', result = $1::jsonb,
+        `UPDATE minion_jobs SET status = '${opts?.terminalStatus ?? 'completed'}', result = $1::jsonb,
           finished_at = now(), lock_token = NULL, lock_until = NULL, updated_at = now()
          WHERE id = $2 AND status = 'active' AND lock_token = $3
          RETURNING *`,

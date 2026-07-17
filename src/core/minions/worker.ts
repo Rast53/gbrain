@@ -1006,11 +1006,35 @@ export class MinionWorker extends EventEmitter {
       clearInterval(lockTimer);
 
       // Complete the job (token-fenced)
+      // P1-R2.2: truthful terminal status. A handler that finished its
+      // work but determined a REQUIRED phase failed reports
+      // { status: 'failed' } — the job still completes through
+      // completeJob (NO failJob, NO retry storm), but lands in 'failed'
+      // so the failure can no longer hide inside 'completed'.
+      const handlerResult = result != null ? (typeof result === 'object' ? result as Record<string, unknown> : { value: result }) : undefined;
+      const terminalStatus = handlerResult && handlerResult.status === 'failed' ? 'failed' as const : 'completed' as const;
       const completed = await this.queue.completeJob(
         job.id,
         lockToken,
-        result != null ? (typeof result === 'object' ? result as Record<string, unknown> : { value: result }) : undefined,
+        handlerResult,
+        { terminalStatus },
       );
+      // P1-R2.3: tw-msk-side alert outbox (drained by
+      // gbrain-alert-emitter.timer; never depends on Helsinki).
+      if (terminalStatus === 'failed' && handlerResult) {
+        try {
+          const { appendFailureOutbox } = await import('./failure-outbox.ts');
+          appendFailureOutbox({
+            job_id: job.id,
+            job_name: job.name,
+            source_id: handlerResult.source_id ?? null,
+            required_failures: handlerResult.required_failures ?? [],
+            attempts_made: job.attempts_made ?? null,
+          });
+        } catch (e) {
+          console.warn(`[worker] failure-outbox append failed (best effort): ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
 
       if (!completed) {
         console.warn(`Job ${job.id} completion dropped (lock token mismatch, job was reclaimed)`);
