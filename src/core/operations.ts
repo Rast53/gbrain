@@ -1386,6 +1386,10 @@ const list_pages: Operation = {
       type: 'string',
       description: 'Optional source filter within caller grant (e.g. raclaw-canonical). Omit to use the authenticated federated/scalar scope.',
     },
+    offset: {
+      type: 'number',
+      description: 'Skip first N results (for stable multi-page catalog pulls; prefer with sort=slug).',
+    },
   },
   handler: async (ctx, p) => {
     // Whitelist the sort enum at the handler before passing to the engine.
@@ -1400,10 +1404,15 @@ const list_pages: Operation = {
     // previous sourceScopeOpts(ctx) behavior.
     const sourceIdParam = typeof p.source_id === 'string' ? p.source_id : undefined;
     const scope = resolveRequestedScope(ctx, sourceIdParam);
+    const rawOffset = p.offset as number | undefined;
+    const offset = typeof rawOffset === 'number' && Number.isFinite(rawOffset) && rawOffset > 0
+      ? Math.floor(rawOffset)
+      : undefined;
     const pages = await ctx.engine.listPages({
       type: p.type as any,
       tag: p.tag as string,
       limit: clampSearchLimit(p.limit as number | undefined, 50, 100),
+      offset,
       includeDeleted: (p.include_deleted as boolean) === true,
       updated_after: typeof p.updated_after === 'string' ? p.updated_after : undefined,
       sort,
