@@ -434,7 +434,14 @@ export async function dispatchPerSource(
       const job = await queue.add(
         'autopilot-cycle',
         {
-          repoPath: opts.repoPath,
+          // P1-R5 (TASK-gbrain-canonical-post-closeout-hardening, finding N1):
+          // per-source cycles resolve repoPath from the SOURCE, not the
+          // legacy global sync.repo_path (which pointed every source's cycle
+          // at raclaw-raw — a legacy bookmark that would sync the wrong repo
+          // for any consumer trusting job data). Legacy single-source
+          // fallback above keeps opts.repoPath; global keys are documented
+          // unused-by-cycles from this commit on.
+          repoPath: src.local_path,
           source_id: src.id,
           pull: !!remoteUrl,
           // #2194 fix #3 (cycle split): per-source cycles run ONLY source-scoped
