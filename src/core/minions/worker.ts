@@ -1332,6 +1332,30 @@ export class MinionWorker extends EventEmitter {
         lockToken,
         result != null ? (typeof result === 'object' ? result as Record<string, unknown> : { value: result }) : undefined,
       );
+      // P1-R2.3: tw-msk-side alert outbox (drained by
+      // gbrain-alert-emitter.timer; never depends on Helsinki).
+      if (terminalStatus === 'failed' && handlerResult) {
+        // Only page on REQUIRED failures. A terminal 'failed' with empty
+        // required_failures should not exist after the deriveStatus fix, but
+        // gate here so optional-only / misclassified rows never spam Telegram.
+        const reqFails = Array.isArray(handlerResult.required_failures)
+          ? handlerResult.required_failures as unknown[]
+          : [];
+        if (reqFails.length > 0) {
+          try {
+            const { appendFailureOutbox } = await import('./failure-outbox.ts');
+            appendFailureOutbox({
+              job_id: job.id,
+              job_name: job.name,
+              source_id: handlerResult.source_id ?? null,
+              required_failures: reqFails,
+              attempts_made: job.attempts_made ?? null,
+            });
+          } catch (e) {
+            console.warn(`[worker] failure-outbox append failed (best effort): ${e instanceof Error ? e.message : String(e)}`);
+          }
+        }
+      }
 
       if (!completed) {
         console.warn(`Job ${job.id} completion dropped (lock token mismatch, job was reclaimed)`);
@@ -1527,6 +1551,27 @@ export class MinionWorker extends EventEmitter {
           return;
         }
       }
+      // P1-R2.3 (raclaw fork): tw-msk-side alert outbox (drained by
+      // gbrain-alert-emitter.timer; never depends on Helsinki). Adapted to
+      // 0.46: terminal required failures reach failJob with newStatus='failed'
+      // (dead/delayed are infra/retry states and must not page). errorText is
+      // the failure detail; the required_failures struct no longer exists
+      // upstream (deriveStatus classifies required-terminal as 'failed').
+      if (newStatus === 'failed') {
+        try {
+          const { appendFailureOutbox } = await import('./failure-outbox.ts');
+          appendFailureOutbox({
+            job_id: job.id,
+            job_name: job.name,
+            source_id: null,
+            required_failures: [{ phase: 'job', error: errorText }],
+            attempts_made: job.attempts_made ?? null,
+          });
+        } catch (e) {
+          console.warn(`[worker] failure-outbox append failed (best effort): ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+
       if (!failed) {
         console.warn(`Job ${job.id} failure dropped (lock token mismatch)`);
         return;
