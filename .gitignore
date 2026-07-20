@@ -46,3 +46,6 @@ test/fixtures/pglite-snapshot.version
 
 # Private brain reports — never check these in (per CLAUDE.md privacy rule)
 reports/network-intelligence/
+*.pre-*
+*.bak
+*.orig
