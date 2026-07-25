@@ -69,6 +69,7 @@ export const EMPTY_EXTRACTION_TOMBSTONE_TEXT = '(no gradeable claims)';
 
 
 
+/**
  * P1-R6: measured wall-clock budget per propose_takes run. Baseline over
  * 160 runs / 7d (finding N5): mean 78s, p100 617s → budget 900s (> p100 ×
  * 1.4). Exceeding it ends the run in the warn posture (budget_exhausted),
@@ -502,13 +503,13 @@ class ProposeTakesPhase extends BaseCyclePhase {
       opts.reporter.start('propose_takes.pages' as never, pages.length);
     }
 
-    const phaseStartMs = Date.now();
-    const timeBudgetMs = opts.timeBudgetMs ?? PROPOSE_TAKES_TIME_BUDGET_MS;
-    let lastHeartbeatMs = phaseStartMs;
 
     for (const page of pages) {
 
-      // Phase deadline check. Break (not throw) so the phase returns a
+      const timeBudgetMs = opts.timeBudgetMs ?? PROPOSE_TAKES_TIME_BUDGET_MS;
+    let lastHeartbeatMs = phaseStartMs;
+
+    // Phase deadline check. Break (not throw) so the phase returns a
       // partial result with deadline_hit:true; work already banked stays.
       const elapsedMs = Date.now() - phaseStartMs;
       if (elapsedMs > deadlineMs) {
