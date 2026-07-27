@@ -5724,6 +5724,38 @@ export const MIGRATIONS: Migration[] = [
         ON take_proposals (source_id, page_slug, content_hash, prompt_version, md5(claim_text));
     `,
   },
+  {
+    version: 126,
+    name: 'consolidate_synthesis_cache_table',
+    // v0.42 — content-hash-keyed cache for the dream-cycle consolidate
+    // phase's LLM synthesis pass. Keyed on sha256(sorted fact ids) so
+    // the same set of unconsolidated facts produces the same claim
+    // across cycles (idempotency G3).
+    sql: `
+      CREATE TABLE IF NOT EXISTS consolidate_synthesis_cache (
+        content_sha256 TEXT NOT NULL,
+        model_id TEXT NOT NULL DEFAULT 'synthesis',
+        claim TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (content_sha256, model_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_consolidate_synthesis_cache_created
+        ON consolidate_synthesis_cache (created_at);
+    `,
+    sqlFor: {
+      pglite: `
+        CREATE TABLE IF NOT EXISTS consolidate_synthesis_cache (
+          content_sha256 TEXT NOT NULL,
+          model_id TEXT NOT NULL,
+          claim TEXT NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          PRIMARY KEY (content_sha256, model_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_consolidate_synthesis_cache_created
+          ON consolidate_synthesis_cache (created_at);
+      `,
+    },
+  },
 ];
 
 export const LATEST_VERSION = MIGRATIONS.length > 0
