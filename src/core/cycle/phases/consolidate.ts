@@ -10,9 +10,10 @@
  *        the take claim (v0.31 ships without LLM synthesis to keep the
  *        cycle deterministic; see TODO at the bottom for the v0.32 Sonnet
  *        rewrite).
- *     4. Resolve entity_slug → pages.slug. If the page is missing, skip
- *        this cluster (no auto-page-creation in v0.31; the take needs a
- *        home).
+ *     4. Resolve entity_slug → pages.slug via resolveEntityPageId() with
+ *        fallback chain: exact → slugify-variants → fuzzy (config-gated) →
+ *        cross-source fallback (opt-in allowlist). Page must exist in the
+ *        bucket's source (or an allowed fallback source); no auto-creation.
  *     5. INSERT into takes(kind='fact', holder='self', source=concatenated
  *        source_sessions). row_num = MAX existing for the page + 1.
  *     6. UPDATE contributing facts: consolidated_at = now() +
@@ -45,6 +46,194 @@ export interface ConsolidatePhaseOpts {
   minOldestAgeMs?: number;
 }
 
+// ---------------------------------------------------------------------------
+// Slug resolution helper
+// ---------------------------------------------------------------------------
+
+export interface ResolveResult {
+  pageId: number;
+  path: 'exact' | 'slugified' | 'fuzzy' | 'fallback_source';
+}
+
+export interface ResolutionPaths {
+  exact: number;
+  slugified: number;
+  fuzzy: number;
+  fallback_source: number;
+  unresolved: string[];
+}
+
+/**
+ * Resolve an entity_slug to a page_id within a source-scoped chain.
+ *
+ * Chain:
+ *   1. Exact match: pages.source_id = sourceId AND pages.slug = entitySlug
+ *   2. Slugify-variants:
+ *      a. First dash → slash (e.g. "projects-gbrain" → "projects/gbrain")
+ *      b. Slash → dash (reverse, for "projects/gbrain" → "projects-gbrain")
+ *      c. Lower-case canonical (already lower-case; included for consistency)
+ *   3. Fuzzy match (gated by `consolidate.resolve_fuzzy_enabled`, default false).
+ *      Uses pg_trgm similarity; requires unambiguous single result ≥ 0.7 score.
+ *   4. Cross-source fallback: if the primary source didn't resolve AND
+ *      `consolidate.resolve_fallback_sources` maps sourceId → [target sources],
+ *      try exact + slugify-variants in each allowed fallback source.
+ *
+ * All steps 1–3 are strictly within `sourceId`. Cross-source fallback (step 4)
+ * is opt-in only and logged. No global/source-unfiltered search ever.
+ *
+ * Returns null when no page is resolved.
+ */
+export async function resolveEntityPageId(
+  engine: BrainEngine,
+  sourceId: string,
+  entitySlug: string,
+  pathCounter: Pick<ResolutionPaths, 'exact' | 'slugified' | 'fuzzy' | 'fallback_source' | 'unresolved'>,
+): Promise<number | null> {
+  // ── 1. Exact match ───────────────────────────────────────────────────
+  let pageId = await tryExactPage(engine, sourceId, entitySlug);
+  if (pageId !== null) { pathCounter.exact += 1; return pageId; }
+
+  // ── 2. Slugify-variants ──────────────────────────────────────────────
+  const variants = slugVariants(entitySlug);
+  for (const variant of variants) {
+    if (variant === entitySlug) continue;
+    pageId = await tryExactPage(engine, sourceId, variant);
+    if (pageId !== null) { pathCounter.slugified += 1; return pageId; }
+  }
+
+  // ── 3. Fuzzy match (config-gated) ────────────────────────────────────
+  const fuzzyEnabledStr = await engine.getConfig('consolidate.resolve_fuzzy_enabled');
+  const fuzzyEnabled = fuzzyEnabledStr === 'true' || fuzzyEnabledStr === '1';
+  if (fuzzyEnabled) {
+    pageId = await tryFuzzyPage(engine, sourceId, entitySlug);
+    if (pageId !== null) { pathCounter.fuzzy += 1; return pageId; }
+  }
+
+  // ── 4. Cross-source fallback (opt-in allowlist) ──────────────────────
+  const fallbackRaw = await engine.getConfig('consolidate.resolve_fallback_sources');
+  if (fallbackRaw) {
+    let fallbackMap: Record<string, string[]> | null = null;
+    try { fallbackMap = JSON.parse(fallbackRaw); } catch { /* invalid JSON, skip */ }
+    if (fallbackMap && fallbackMap[sourceId] && Array.isArray(fallbackMap[sourceId])) {
+      for (const targetSource of fallbackMap[sourceId]!) {
+        // Exact in fallback source
+        pageId = await tryExactPage(engine, targetSource, entitySlug);
+        if (pageId !== null) { pathCounter.fallback_source += 1; return pageId; }
+        // Slugify-variants in fallback source
+        for (const variant of variants) {
+          if (variant === entitySlug) continue;
+          pageId = await tryExactPage(engine, targetSource, variant);
+          if (pageId !== null) { pathCounter.fallback_source += 1; return pageId; }
+        }
+      }
+    }
+  }
+
+  // ── Unresolved ───────────────────────────────────────────────────────
+  pathCounter.unresolved.push(`${sourceId}:${entitySlug}`);
+  return null;
+}
+
+/**
+ * Slugify-variants for the fallback chain: tries common transformations
+ * between dash-slug and slash-slug forms.
+ */
+export function slugVariants(slug: string): string[] {
+  const variants: string[] = [];
+  const lower = slug.toLowerCase();
+
+  // First dash → slash: "projects-gbrain" → "projects/gbrain"
+  const dashIdx = slug.indexOf('-');
+  if (dashIdx > 0 && dashIdx < slug.length - 1 && !slug.includes('/')) {
+    const slashForm = slug.slice(0, dashIdx) + '/' + slug.slice(dashIdx + 1);
+    variants.push(slashForm);
+  }
+
+  // First slash → dash: "projects/gbrain" → "projects-gbrain"
+  const slashIdx = slug.indexOf('/');
+  if (slashIdx > 0 && slashIdx < slug.length - 1) {
+    const dashForm = slug.slice(0, slashIdx) + '-' + slug.slice(slashIdx + 1);
+    variants.push(dashForm);
+  }
+
+  // Lower-cased (already applied via `lower`; include distinct form if original
+  // wasn't already lower-case)
+  if (lower !== slug) {
+    // Also apply first-char transformations on the lower-cased variant
+    const ldashIdx = lower.indexOf('-');
+    if (ldashIdx > 0 && ldashIdx < lower.length - 1 && !lower.includes('/')) {
+      variants.push(lower.slice(0, ldashIdx) + '/' + lower.slice(ldashIdx + 1));
+    }
+    if (!variants.includes(lower)) {
+      variants.push(lower);
+    }
+  }
+
+  // Deduplicate; keep order
+  return [...new Set(variants)];
+}
+
+async function tryExactPage(
+  engine: BrainEngine,
+  sourceId: string,
+  slug: string,
+): Promise<number | null> {
+  try {
+    const rows = await engine.executeRaw<{ id: number }>(
+      `SELECT id FROM pages WHERE source_id = $1 AND slug = $2 AND deleted_at IS NULL LIMIT 1`,
+      [sourceId, slug],
+    );
+    if (rows.length > 0) return rows[0].id;
+  } catch {
+    // Defensive: don't crash on SQL error.
+  }
+  return null;
+}
+
+/**
+ * Fuzzy page resolution using pg_trgm similarity. Returns page_id only when
+ * there is exactly one unambiguous candidate with score ≥ 0.7. Ambiguous
+ * results (multiple candidates above threshold) → null + logged.
+ */
+async function tryFuzzyPage(
+  engine: BrainEngine,
+  sourceId: string,
+  entitySlug: string,
+): Promise<number | null> {
+  const lc = entitySlug.toLowerCase();
+  const fragment = entitySlug.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-+/g, '-').replace(/^-+|-+$/g, '');
+  try {
+    const rows = await engine.executeRaw<{ id: number; slug: string; title: string; score: number }>(
+      `SELECT id, slug, title,
+         GREATEST(
+           similarity(lower(title), $2),
+           similarity(slug, $3)
+         ) AS score
+       FROM pages
+       WHERE source_id = $1
+         AND deleted_at IS NULL
+         AND (
+           lower(title) % $2
+           OR slug ILIKE '%' || $3 || '%'
+         )
+       ORDER BY score DESC, slug ASC
+       LIMIT 5`,
+      [sourceId, lc, fragment],
+    );
+    if (rows.length === 0) return null;
+    // Ambiguous: multiple candidates above threshold → skip.
+    if (rows.length >= 2 && rows[1].score >= 0.7) return null;
+    if (rows[0].score >= 0.7) return rows[0].id;
+  } catch {
+    // pg_trgm may not be available; fall through.
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Phase entry point
+// ---------------------------------------------------------------------------
+
 export async function runPhaseConsolidate(
   engine: BrainEngine,
   opts: ConsolidatePhaseOpts = {},
@@ -58,6 +247,10 @@ export async function runPhaseConsolidate(
   let takesWritten = 0;
   let bucketsProcessed = 0;
   let bucketsSkipped = 0;
+
+  const resolutionPaths: ResolutionPaths = {
+    exact: 0, slugified: 0, fuzzy: 0, fallback_source: 0, unresolved: [],
+  };
 
   // Pull every (source_id, entity_slug) bucket of unconsolidated facts.
   // Uses the partial idx_facts_unconsolidated index.
@@ -122,13 +315,9 @@ export async function runPhaseConsolidate(
     bucketsProcessed += 1;
     const clusters = clusterFacts(unconsolidated, threshold);
 
-    // Resolve entity_slug → page_id. If page missing in this source, skip.
-    const pageRows = await engine.executeRaw<{ id: number }>(
-      `SELECT id FROM pages WHERE source_id = $1 AND slug = $2 AND deleted_at IS NULL LIMIT 1`,
-      [b.source_id, b.entity_slug],
-    );
-    if (pageRows.length === 0) continue;
-    const pageId = pageRows[0].id;
+    // Resolve entity_slug → page_id with fallback chain.
+    const pageId = await resolveEntityPageId(engine, b.source_id, b.entity_slug, resolutionPaths);
+    if (pageId === null) continue;
 
     // Existing row_num max for this page → start appending after it.
     const rowMaxRows = await engine.executeRaw<{ max: number }>(
@@ -219,16 +408,6 @@ export async function runPhaseConsolidate(
       }
 
       // v0.35.4 (D-CDX-4 part 2) — chronological valid_until writeback.
-      // Sort the cluster by (valid_from ASC, id ASC); walk consecutive
-      // pairs; stamp the older fact's valid_until = next_newer.valid_from.
-      // The newest fact keeps valid_until = NULL. This makes the facts
-      // table a proper bitemporal record without the contradiction probe
-      // having to mutate it (preserves auto-supersession.ts:4 invariant —
-      // see also R8 test guard).
-      //
-      // Idempotent: re-running on the same cluster produces the same
-      // chronological order and the same valid_until values. No-op if
-      // valid_until is already correct.
       const chronological = [...cluster].sort((a, b) => {
         const t = a.valid_from.getTime() - b.valid_from.getTime();
         if (t !== 0) return t;
@@ -238,9 +417,6 @@ export async function runPhaseConsolidate(
         const older = chronological[i];
         const newer = chronological[i + 1];
         await engine.executeRaw(
-          // Only UPDATE when the new value would actually change. Avoids
-          // touching updated_at on no-op rewrites and keeps idempotency
-          // observable in the DB (zero affected rows on stable re-run).
           `UPDATE facts
              SET valid_until = $1
            WHERE id = $2
@@ -264,6 +440,7 @@ export async function runPhaseConsolidate(
       takes_written: takesWritten,
       buckets_processed: bucketsProcessed,
       buckets_skipped: bucketsSkipped,
+      resolution_paths: resolutionPaths,
     },
   };
 }
