@@ -7,16 +7,19 @@
  *     1. Skip if count < 3 OR oldest fact age < 24h.
  *     2. Cluster by embedding cosine — greedy threshold 0.85.
  *     3. For each cluster ≥ 2: pick the highest-confidence fact's text as
- *        the take claim (v0.31 ships without LLM synthesis to keep the
- *        cycle deterministic; see TODO at the bottom for the v0.32 Sonnet
- *        rewrite).
+ *        the take claim (v0.31 deterministic).
  *     4. Resolve entity_slug → pages.slug via resolveEntityPageId() with
- *        fallback chain: exact → slugify-variants → fuzzy (config-gated) →
- *        cross-source fallback (opt-in allowlist). Page must exist in the
- *        bucket's source (or an allowed fallback source); no auto-creation.
- *     5. INSERT into takes(kind='fact', holder='self', source=concatenated
+ *        fallback chain: exact → slugify-variants → alias-map → fuzzy
+ *        (config-gated) → cross-source fallback (opt-in allowlist). Page
+ *        must exist in the bucket's source (or an allowed fallback source);
+ *        no auto-creation.
+ *     5. Synthesis pass (v0.42): when ALL clusters are singletons AND
+ *        `consolidate.synthesis.enabled` is true, call an LLM to produce one
+ *        consolidated claim from the bucket's facts. Falls back to
+ *        deterministic best-fact selection on LLM unavailability.
+ *     6. INSERT into takes(kind='fact', holder='self', source=concatenated
  *        source_sessions). row_num = MAX existing for the page + 1.
- *     6. UPDATE contributing facts: consolidated_at = now() +
+ *     7. UPDATE contributing facts: consolidated_at = now() +
  *        consolidated_into = takes.id. NEVER DELETE.
  *
  * The phase's totals contribute to the runCycle CycleReport via
@@ -27,6 +30,11 @@ import type { BrainEngine, FactRow } from '../../engine.ts';
 import type { PhaseResult } from '../../cycle.ts';
 import { cosineSimilarity } from '../../facts/classify.ts';
 import { isAborted } from '../../abort-check.ts';
+import {
+  synthesizeClaim,
+  type SynthesisOpts,
+  type SynthesisResult,
+} from './consolidate-synthesis.ts';
 
 export interface ConsolidatePhaseOpts {
   dryRun?: boolean;
@@ -44,6 +52,10 @@ export interface ConsolidatePhaseOpts {
   minFactsPerBucket?: number;
   /** Minimum age (ms) of the OLDEST fact in a bucket before consolidation. Default 24h. */
   minOldestAgeMs?: number;
+  /**
+   * v0.42: test seam for the LLM synthesis path. Set by hermetic tests only.
+   */
+  synthesizeFn?: SynthesisOpts['synthesizeFn'];
 }
 
 // ---------------------------------------------------------------------------
@@ -52,12 +64,13 @@ export interface ConsolidatePhaseOpts {
 
 export interface ResolveResult {
   pageId: number;
-  path: 'exact' | 'slugified' | 'fuzzy' | 'fallback_source';
+  path: 'exact' | 'slugified' | 'alias' | 'fuzzy' | 'fallback_source';
 }
 
 export interface ResolutionPaths {
   exact: number;
   slugified: number;
+  alias: number;
   fuzzy: number;
   fallback_source: number;
   unresolved: string[];
@@ -72,14 +85,18 @@ export interface ResolutionPaths {
  *      a. First dash → slash (e.g. "projects-gbrain" → "projects/gbrain")
  *      b. Slash → dash (reverse, for "projects/gbrain" → "projects-gbrain")
  *      c. Lower-case canonical (already lower-case; included for consistency)
- *   3. Fuzzy match (gated by `consolidate.resolve_fuzzy_enabled`, default false).
+ *   3. Alias map (config `consolidate.resolve_aliases`, JSON entity_slug →
+ *      target_slug). Cross-source allowed — this is an explicit operator
+ *      mapping. Logged as `alias` in resolution_paths.
+ *   4. Fuzzy match (gated by `consolidate.resolve_fuzzy_enabled`, default false).
  *      Uses pg_trgm similarity; requires unambiguous single result ≥ 0.7 score.
- *   4. Cross-source fallback: if the primary source didn't resolve AND
+ *   5. Cross-source fallback: if the primary source didn't resolve AND
  *      `consolidate.resolve_fallback_sources` maps sourceId → [target sources],
  *      try exact + slugify-variants in each allowed fallback source.
  *
- * All steps 1–3 are strictly within `sourceId`. Cross-source fallback (step 4)
- * is opt-in only and logged. No global/source-unfiltered search ever.
+ * All steps 1–2 and 4 are strictly within `sourceId`. Steps 3 (alias) and
+ * 5 (fallback) are cross-source opt-in and logged. No global/source-unfiltered
+ * search ever.
  *
  * Returns null when no page is resolved.
  */
@@ -87,7 +104,10 @@ export async function resolveEntityPageId(
   engine: BrainEngine,
   sourceId: string,
   entitySlug: string,
-  pathCounter: Pick<ResolutionPaths, 'exact' | 'slugified' | 'fuzzy' | 'fallback_source' | 'unresolved'>,
+  pathCounter: Pick<
+    ResolutionPaths,
+    'exact' | 'slugified' | 'alias' | 'fuzzy' | 'fallback_source' | 'unresolved'
+  >,
 ): Promise<number | null> {
   // ── 1. Exact match ───────────────────────────────────────────────────
   let pageId = await tryExactPage(engine, sourceId, entitySlug);
@@ -101,7 +121,11 @@ export async function resolveEntityPageId(
     if (pageId !== null) { pathCounter.slugified += 1; return pageId; }
   }
 
-  // ── 3. Fuzzy match (config-gated) ────────────────────────────────────
+  // ── 3. Alias map (operator-defined, cross-source allowed) ─────────────
+  pageId = await tryAliasPage(engine, entitySlug, pathCounter);
+  if (pageId !== null) return pageId;
+
+  // ── 4. Fuzzy match (config-gated) ────────────────────────────────────
   const fuzzyEnabledStr = await engine.getConfig('consolidate.resolve_fuzzy_enabled');
   const fuzzyEnabled = fuzzyEnabledStr === 'true' || fuzzyEnabledStr === '1';
   if (fuzzyEnabled) {
@@ -109,7 +133,7 @@ export async function resolveEntityPageId(
     if (pageId !== null) { pathCounter.fuzzy += 1; return pageId; }
   }
 
-  // ── 4. Cross-source fallback (opt-in allowlist) ──────────────────────
+  // ── 5. Cross-source fallback (opt-in allowlist) ──────────────────────
   const fallbackRaw = await engine.getConfig('consolidate.resolve_fallback_sources');
   if (fallbackRaw) {
     let fallbackMap: Record<string, string[]> | null = null;
@@ -191,6 +215,42 @@ async function tryExactPage(
 }
 
 /**
+ * Alias-map page resolution. Reads `consolidate.resolve_aliases` config
+ * (JSON map entity_slug → target_slug). Cross-source: tries the target slug
+ * in ALL known sources (ordered by sources table). Returns the first match.
+ */
+async function tryAliasPage(
+  engine: BrainEngine,
+  entitySlug: string,
+  pathCounter: Pick<ResolutionPaths, 'alias' | 'unresolved'>,
+): Promise<number | null> {
+  const raw = await engine.getConfig('consolidate.resolve_aliases');
+  if (!raw) return null;
+
+  let aliasMap: Record<string, string> | null = null;
+  try { aliasMap = JSON.parse(raw); } catch { return null; }
+  if (!aliasMap || typeof aliasMap !== 'object') return null;
+
+  const targetSlug = aliasMap[entitySlug];
+  if (!targetSlug || typeof targetSlug !== 'string') return null;
+
+  // Cross-source: try the target slug in all known sources.
+  try {
+    const rows = await engine.executeRaw<{ source_id: string; id: number }>(
+      `SELECT source_id, id FROM pages WHERE slug = $1 AND deleted_at IS NULL ORDER BY source_id LIMIT 1`,
+      [targetSlug],
+    );
+    if (rows.length > 0) {
+      pathCounter.alias += 1;
+      return rows[0].id;
+    }
+  } catch {
+    // Defensive.
+  }
+  return null;
+}
+
+/**
  * Fuzzy page resolution using pg_trgm similarity. Returns page_id only when
  * there is exactly one unambiguous candidate with score ≥ 0.7. Ambiguous
  * results (multiple candidates above threshold) → null + logged.
@@ -248,9 +308,20 @@ export async function runPhaseConsolidate(
   let bucketsProcessed = 0;
   let bucketsSkipped = 0;
 
+  // Synthesis counters
+  let synthesisLlm = 0;
+  let synthesisDet = 0;
+  let synthesisBuckets = 0;
+
   const resolutionPaths: ResolutionPaths = {
-    exact: 0, slugified: 0, fuzzy: 0, fallback_source: 0, unresolved: [],
+    exact: 0, slugified: 0, alias: 0, fuzzy: 0, fallback_source: 0, unresolved: [],
   };
+
+  // Read synthesis config
+  const synthesisEnabledRaw = await engine.getConfig('consolidate.synthesis.enabled');
+  const synthesisEnabled = synthesisEnabledRaw !== 'false' && synthesisEnabledRaw !== '0';
+  const maxBucketsRaw = await engine.getConfig('consolidate.synthesis.max_buckets_per_run');
+  const maxBucketsPerRun = maxBucketsRaw ? parseInt(maxBucketsRaw, 10) || 20 : 20;
 
   // Pull every (source_id, entity_slug) bucket of unconsolidated facts.
   // Uses the partial idx_facts_unconsolidated index.
@@ -326,11 +397,14 @@ export async function runPhaseConsolidate(
     );
     let nextRowNum = (rowMaxRows[0]?.max ?? 0) + 1;
 
+    // ── Existing cluster promotion (size ≥ 2) ──────────────────────────────
+    let hasMultiFactCluster = false;
     for (const cluster of clusters) {
       if (cluster.length < 2) continue;
+      hasMultiFactCluster = true;
+
       // Take selection: pick the highest-confidence fact's text as the
-      // take claim (v0.31 deterministic). v0.32 will swap to a Sonnet
-      // synthesis pass.
+      // take claim (v0.31 deterministic).
       const best = cluster.reduce((a, b) => (b.confidence > a.confidence ? b : a));
       const avgWeight = cluster.reduce((s, f) => s + f.confidence, 0) / cluster.length;
       const sources = Array.from(new Set(cluster.map(c => c.source_session ?? c.source).filter(Boolean))).join(',');
@@ -341,21 +415,13 @@ export async function runPhaseConsolidate(
         .slice(0, 10);
 
       if (dryRun) {
-        // Pretend we did it.
         takesWritten += 1;
         factsConsolidated += cluster.length;
         nextRowNum += 1;
         continue;
       }
 
-      // v0.35.4 (D-CDX-4) — semantic upsert. The full dream cycle runs
-      // `extract_facts` BEFORE `consolidate`; `extract_facts` hard-deletes
-      // and re-inserts page facts via deleteFactsForPage + insertFacts,
-      // which clears `consolidated_at` on every fact. Without this lookup,
-      // a second cycle run would re-INSERT a duplicate take via
-      // `MAX(row_num)+1`, silently poisoning trajectory + scorecard data.
-      // Match on (page_id, claim, since_date) — the natural identity of a
-      // promoted take.
+      // v0.35.4 (D-CDX-4) — semantic upsert.
       const existing = await engine.executeRaw<{ id: number }>(
         `SELECT id FROM takes
          WHERE page_id = $1 AND claim = $2 AND since_date = $3
@@ -365,10 +431,6 @@ export async function runPhaseConsolidate(
 
       let takeId: number;
       if (existing.length > 0) {
-        // Re-promotion of a cluster we already wrote a take for. Refresh
-        // the source-aggregation string (new fact rows may carry new
-        // source_session values that the prior run didn't see); leave
-        // row_num + weight untouched to keep the take's identity stable.
         takeId = existing[0].id;
         await engine.executeRaw(
           `UPDATE takes SET source = $1, updated_at = now() WHERE id = $2`,
@@ -425,21 +487,148 @@ export async function runPhaseConsolidate(
         );
       }
     }
+
+    // ── Synthesis pass (v0.42) ─────────────────────────────────────────────
+    // Only for buckets where ALL clusters are singletons AND synthesis is
+    // enabled AND we haven't hit max_buckets_per_run.
+    if (
+      !hasMultiFactCluster &&
+      synthesisEnabled &&
+      synthesisBuckets < maxBucketsPerRun
+    ) {
+      synthesisBuckets += 1;
+
+      // Gather all unconsolidated facts (all are singletons by definition)
+      const allSingletonFacts = clusters.flat();
+
+      if (dryRun) {
+        // Dry-run: pretend we synthesized (always count as llm for dry-run
+        // since we can't know which path the LLM would take).
+        synthesisLlm += 1;
+        takesWritten += 1;
+        factsConsolidated += allSingletonFacts.length;
+        nextRowNum += 1;
+        continue;
+      }
+
+      const synthResult = await synthesizeClaim(
+        engine,
+        allSingletonFacts,
+        b.entity_slug,
+        {
+          synthesizeFn: opts.synthesizeFn,
+          signal: opts.signal,
+        },
+      );
+
+      if (synthResult.kind === 'llm') {
+        synthesisLlm += 1;
+      } else {
+        synthesisDet += 1;
+      }
+
+      const sinceISO = allSingletonFacts
+        .map(c => c.valid_from)
+        .reduce((min, d) => (d < min ? d : min))
+        .toISOString()
+        .slice(0, 10);
+
+      // Supersede (F4): deactivate any existing active synthesis takes on
+      // this page before inserting the new one.
+      await engine.executeRaw(
+        `UPDATE takes SET active = false, updated_at = now()
+         WHERE page_id = $1
+           AND source = 'consolidate-synthesis'
+           AND active = true`,
+        [pageId],
+      );
+
+      // Semantic upsert check: does this exact claim+since already exist?
+      const existing = await engine.executeRaw<{ id: number }>(
+        `SELECT id FROM takes
+         WHERE page_id = $1 AND claim = $2 AND since_date = $3
+         LIMIT 1`,
+        [pageId, synthResult.claim, sinceISO],
+      );
+
+      let takeId: number;
+      if (existing.length > 0) {
+        // Re-activate if it was deactivated (supersede edge case — same
+        // claim produced again after being superseded).
+        takeId = existing[0].id;
+        await engine.executeRaw(
+          `UPDATE takes SET active = true, weight = $1, updated_at = now() WHERE id = $2`,
+          [synthResult.weight, takeId],
+        );
+      } else {
+        const inserted = await engine.addTakesBatch([{
+          page_id: pageId,
+          row_num: nextRowNum,
+          claim: synthResult.claim,
+          kind: 'fact',
+          holder: 'self',
+          weight: synthResult.weight,
+          since_date: sinceISO,
+          source: 'consolidate-synthesis',
+          active: true,
+        }]);
+        if (inserted < 1) continue;
+
+        const idRows = await engine.executeRaw<{ id: number }>(
+          `SELECT id FROM takes WHERE page_id = $1 AND row_num = $2`,
+          [pageId, nextRowNum],
+        );
+        if (idRows.length === 0) {
+          nextRowNum += 1;
+          continue;
+        }
+        takeId = idRows[0].id;
+        nextRowNum += 1;
+        takesWritten += 1;
+      }
+
+      // Mark all singleton facts as consolidated into this synthesis take.
+      for (const f of allSingletonFacts) {
+        await engine.consolidateFact(f.id, takeId);
+        factsConsolidated += 1;
+      }
+
+      // v0.42: NO valid_until writeback for synthesis takes.
+      // The chronological valid_until logic (D-CDX-4 part 2) was designed
+      // for semantically-equal clustered facts. For synthesis, facts in
+      // the bucket are different claims about the same entity at different
+      // points in time — applying an oldest→second-oldest valid_until chain
+      // would produce incorrect truncation. The facts remain active history
+      // (valid_until = NULL) and the synthesis take captures the best
+      // consolidated claim. F8 acknowledges this; see premortem.
+    }
+  }
+
+  // Build summary
+  const parts: string[] = [];
+  if (dryRun) {
+    parts.push(`(dry-run) would promote ${factsConsolidated} facts into ${takesWritten} takes across ${bucketsProcessed} buckets`);
+  } else {
+    parts.push(`promoted ${factsConsolidated} facts into ${takesWritten} takes across ${bucketsProcessed} buckets`);
+  }
+  if (synthesisBuckets > 0) {
+    parts.push(`(synthesis: ${synthesisLlm} llm, ${synthesisDet} det)`);
   }
 
   return {
     phase: 'consolidate',
-    status: factsConsolidated > 0 ? 'ok' : 'ok',
+    status: 'ok',
     duration_ms: 0,
-    summary: dryRun
-      ? `(dry-run) would promote ${factsConsolidated} facts into ${takesWritten} takes across ${bucketsProcessed} buckets`
-      : `promoted ${factsConsolidated} facts into ${takesWritten} takes across ${bucketsProcessed} buckets`,
+    summary: parts.join(' '),
     details: {
       dryRun,
       facts_consolidated: factsConsolidated,
       takes_written: takesWritten,
       buckets_processed: bucketsProcessed,
       buckets_skipped: bucketsSkipped,
+      synthesis_llm: synthesisLlm,
+      synthesis_det: synthesisDet,
+      synthesis_buckets: synthesisBuckets,
       resolution_paths: resolutionPaths,
     },
   };
