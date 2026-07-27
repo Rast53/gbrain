@@ -33,6 +33,7 @@ import {
 } from '../core/cycle.ts';
 import { resolveSourceId } from '../core/source-resolver.ts';
 import { fetchSource } from '../core/sources-load.ts';
+import { configureGatewayIfUninitialized } from '../core/ai/gateway.ts';
 import { existsSync } from 'fs';
 import { resolve } from 'node:path';
 
@@ -664,6 +665,9 @@ export async function runDream(engine: BrainEngine | null, args: string[]): Prom
   }
 
   const phases: CyclePhase[] | undefined = opts.phase ? [opts.phase] : undefined;
+
+  // Best-effort: gateway needed for LLM-backed phases (e.g. consolidate synthesis)
+  try { configureGatewayIfUninitialized(); } catch { /* best-effort */ }
 
   const report = await runCycle(engine, {
     brainDir,

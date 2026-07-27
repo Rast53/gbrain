@@ -329,7 +329,7 @@ export async function synthesizeClaim(
       modelStr: model,
       content: user,
       system,
-      maxTokens: 200,
+      maxTokens: 16000,
       signal: opts.signal,
       parse: (text: string) => {
         const cleaned = text.trim();
