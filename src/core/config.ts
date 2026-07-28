@@ -1462,6 +1462,7 @@ export const KNOWN_CONFIG_KEYS: readonly string[] = [
   'models.chat',
   'models.brainstorm.judge',
   'models.eval.longmemeval', 'models.eval.cross_modal.slot_a', 'models.eval.cross_modal.slot_b', 'models.eval.cross_modal.slot_c', // #5872 D12 probe judge slots
+  'models.propose_takes',
   'facts.extraction_model',
   'recall.question_admission', // recall `question` admission rule: reserve (default) | facts_arm (facts/question-recall.ts)
   // Brain-wide kill switch for fact extraction, read by
