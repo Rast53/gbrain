@@ -1367,6 +1367,7 @@ export const KNOWN_CONFIG_KEYS: readonly string[] = [
   'models.chat',
   'models.brainstorm.judge',
   'models.eval.longmemeval',
+  'models.propose_takes',
   'facts.extraction_model',
   // Brain-wide kill switch for fact extraction, read by
   // src/core/facts/extract.ts:isFactsExtractionEnabled and honored by
