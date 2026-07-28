@@ -300,7 +300,9 @@ export async function runPhaseConsolidate(
 ): Promise<PhaseResult> {
   const dryRun = opts.dryRun === true;
   const threshold = opts.clusterThreshold ?? 0.85;
-  const minPerBucket = opts.minFactsPerBucket ?? 3;
+  const minPerBucketCfgRaw = await engine.getConfig('consolidate.min_facts_per_bucket');
+  const minPerBucket = opts.minFactsPerBucket
+    ?? (minPerBucketCfgRaw ? parseInt(minPerBucketCfgRaw, 10) || 3 : 3);
   const minOldestAgeMs = opts.minOldestAgeMs ?? 24 * 60 * 60 * 1000;
 
   let factsConsolidated = 0;
