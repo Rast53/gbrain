@@ -28,7 +28,10 @@ const TOTALS_ZERO = {
   pages_embedded: 0, orphans_found: 0, transcripts_processed: 0,
   synth_pages_written: 0, patterns_written: 0,
   pages_emotional_weight_recomputed: 0, edges_resolved: 0, edges_ambiguous: 0,
-} as never;
+  purged_sources_count: 0, purged_pages_count: 0,
+  facts_consolidated: 0, consolidate_takes_written: 0,
+  phantoms_redirected: 0, phantoms_ambiguous: 0, phantoms_skipped_drift: 0,
+};
 
 const TOTALS_WORK = { ...TOTALS_ZERO, pages_synced: 1 } as never;
 

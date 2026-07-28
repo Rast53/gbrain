@@ -152,6 +152,7 @@ describe('runPhaseRecomputeEmotionalWeight', () => {
       batchLoadEmotionalInputs: async () => { throw new Error('db down'); },
       setEmotionalWeightBatch: async () => 0,
       getConfig: async () => null,
+      executeRaw: async () => [],
     };
     const r = await runPhaseRecomputeEmotionalWeight(engine as any, {});
     expect(r.status).toBe('fail');
