@@ -30,7 +30,7 @@ const TOTALS_ZERO = {
   pages_emotional_weight_recomputed: 0, edges_resolved: 0, edges_ambiguous: 0,
 } as never;
 
-const TOTALS_WORK = { ...TOTALS_ZERO, pages_synced: 1 } as never;
+const TOTALS_WORK = { ...(TOTALS_ZERO as object), pages_synced: 1 } as never;
 
 describe('P1-R2.1 phase registry', () => {
   test('cycle required = sync/extract; global required = embed/purge', () => {

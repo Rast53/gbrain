@@ -1816,7 +1816,6 @@ const list_pages: Operation = {
       type: pg.type,
       title: pg.title,
       updated_at: pg.updated_at,
-      source_id: pg.source_id,
       ...(pg.deleted_at ? { deleted_at: pg.deleted_at } : {}),
     }));
   },

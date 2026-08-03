@@ -80,7 +80,7 @@ async function seedFacts(sourceId: string, entitySlug: string, count: number) {
 }
 
 function makePathCounter(): ResolutionPaths {
-  return { exact: 0, slugified: 0, fuzzy: 0, fallback_source: 0, unresolved: [] };
+  return { exact: 0, slugified: 0, alias: 0, fuzzy: 0, fallback_source: 0, unresolved: [] };
 }
 
 // ---------------------------------------------------------------------------
