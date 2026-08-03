@@ -1196,17 +1196,9 @@ export class PGLiteEngine implements BrainEngine {
     // page_links, chunk_relations) on DELETE.
     const hours = Math.max(0, Math.floor(olderThanHours));
     const { rows } = await this.db.query(
-    // P1-R7 (TASK-gbrain-canonical-post-closeout-hardening): frozen
-    // (legacy_read_only) sources are never purged — a DELETE on default
-    // rows trips the T707 write freeze by design; frozen sources keep
-    // even their soft-deleted rows.
       `DELETE FROM pages
        WHERE deleted_at IS NOT NULL
          AND deleted_at < now() - ($1 || ' hours')::interval
-         AND source_id NOT IN (
-           SELECT id FROM sources
-           WHERE COALESCE((config->>'legacy_read_only')::boolean, false)
-         )
        RETURNING slug`,
       [hours]
     );

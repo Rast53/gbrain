@@ -14,14 +14,9 @@ interface FakeEngine {
   batchLoadEmotionalInputs(slugs?: string[]): Promise<EmotionalWeightInputRow[]>;
   setEmotionalWeightBatch(rows: EmotionalWeightWriteRow[]): Promise<number>;
   getConfig(key: string): Promise<string | null>;
-  executeRaw<T>(sql: string, params: unknown[]): Promise<T[]>;
 }
 
-function makeEngine(
-  rows: EmotionalWeightInputRow[],
-  configMap: Record<string, string | null> = {},
-  frozenIds: string[] = [],
-): FakeEngine & {
+function makeEngine(rows: EmotionalWeightInputRow[], configMap: Record<string, string | null> = {}): FakeEngine & {
   written: EmotionalWeightWriteRow[];
   loadCalls: (string[] | undefined)[];
 } {
@@ -30,11 +25,6 @@ function makeEngine(
   return {
     written,
     loadCalls,
-    async executeRaw<T>(sql: string, _params: unknown[]): Promise<T[]> {
-      // P1-R7 frozen-sources probe (production queries sources.legacy_read_only).
-      if (sql.includes('legacy_read_only')) return frozenIds.map((id) => ({ id })) as T[];
-      throw new Error(`makeEngine: unexpected executeRaw SQL: ${sql.slice(0, 80)}`);
-    },
     async batchLoadEmotionalInputs(slugs?: string[]) {
       loadCalls.push(slugs);
       if (!slugs) return rows;
@@ -127,24 +117,6 @@ describe('runPhaseRecomputeEmotionalWeight', () => {
     });
     await runPhaseRecomputeEmotionalWeight(engine as any, {});
     expect(engine.written[0].weight).toBeCloseTo(0.5, 5);
-  });
-
-  test('P1-R7: frozen (legacy_read_only) sources are excluded from the write set', async () => {
-    // Slugs are NOT unique across sources: the read returns rows for every
-    // source holding the slug; frozen rows must never reach the UPDATE
-    // (their write attempts tripped the T707 freeze live — finding N3).
-    const rows: EmotionalWeightInputRow[] = [
-      { slug: 'shared', source_id: 'default', tags: ['wedding'], takes: [] },
-      { slug: 'shared', source_id: 'src-a', tags: ['wedding'], takes: [] },
-    ];
-    const engine = makeEngine(rows, {}, ['default']);
-    const r = await runPhaseRecomputeEmotionalWeight(engine as any, { affectedSlugs: ['shared'] });
-    expect(r.status).toBe('ok');
-    expect(r.pages_recomputed).toBe(1);
-    expect(engine.written.length).toBe(1);
-    expect(engine.written[0].source_id).toBe('src-a');
-    // Zero write attempts on the frozen default row (spec P1-R7 fixture).
-    expect(engine.written.some((w) => w.source_id === 'default')).toBe(false);
   });
 
   test('engine throw bubbles into a fail PhaseResult, not an unhandled exception', async () => {

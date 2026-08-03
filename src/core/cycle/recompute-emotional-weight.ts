@@ -74,22 +74,7 @@ export async function runPhaseRecomputeEmotionalWeight(
     }
 
     const inputs = await engine.batchLoadEmotionalInputs(opts.affectedSlugs);
-
-    // P1-R7 (TASK-gbrain-canonical-post-closeout-hardening, finding N3):
-    // exclude frozen (legacy_read_only) sources from the write set. Slugs
-    // are NOT unique across sources: batchLoadEmotionalInputs(slugs)
-    // returns rows for every source holding those slugs — including frozen
-    // `default` rows, whose UPDATE then tripped the T707 write freeze
-    // (observed live: 1/10 cycles failing 'T707 default write freeze').
-    // Frozen sources keep their stored weights untouched (read-only plane).
-    const frozenRows = await engine.executeRaw<{ id: string }>(
-      `SELECT id FROM sources WHERE COALESCE((config->>'legacy_read_only')::boolean, false)`,
-      [],
-    );
-    const frozen = new Set(frozenRows.map((r) => r.id));
-    const writes = inputs
-      .filter((row) => !frozen.has(row.source_id))
-      .map(row => ({
+    const writes = inputs.map(row => ({
       slug: row.slug,
       source_id: row.source_id,
       weight: computeEmotionalWeight(
@@ -106,9 +91,7 @@ export async function runPhaseRecomputeEmotionalWeight(
       }, start);
     }
 
-    // P1-R7: guard the all-frozen edge — an empty batch must be a clean
-    // zero-work update, not an unnest-with-empty-array error.
-    const updated = writes.length > 0 ? await engine.setEmotionalWeightBatch(writes) : 0;
+    const updated = await engine.setEmotionalWeightBatch(writes);
 
     return result('ok', `recompute_emotional_weight (${updated} pages)`, updated, {
       mode: opts.affectedSlugs ? 'incremental' : 'full',
