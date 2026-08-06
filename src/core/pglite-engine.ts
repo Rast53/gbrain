@@ -5556,7 +5556,7 @@ export class PGLiteEngine implements BrainEngine {
         -- out of the link/timeline coverage denominators (parity with
         -- onboard's VISIBLE_ENTITY_PREDICATE).
         SELECT id, slug FROM scoped_pages WHERE id IN (
-          SELECT id FROM pages WHERE type IN ('entity', 'person', 'company') AND deleted_at IS NULL
+          SELECT id FROM pages WHERE type IN ('entity', 'person', 'company', 'service', 'server', 'project', 'repo', 'device', 'client') AND deleted_at IS NULL
             AND ${quarantineFilterFragment('pages')}
         )
       )
@@ -5627,7 +5627,7 @@ export class PGLiteEngine implements BrainEngine {
                            OR EXISTS (SELECT 1 FROM pages fp WHERE fp.id = l.from_page_id AND fp.source_id = ANY($1))))
              )::int as link_count
       FROM pages p
-      WHERE p.type IN ('entity', 'person', 'company') AND p.deleted_at IS NULL
+      WHERE p.type IN ('entity', 'person', 'company', 'service', 'server', 'project', 'repo', 'device', 'client') AND p.deleted_at IS NULL
         AND ${QUARANTINE_FILTER_FRAGMENT}
         AND ($1::text[] IS NULL OR p.source_id = ANY($1))
       ORDER BY link_count DESC
