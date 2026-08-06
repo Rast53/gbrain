@@ -35,7 +35,9 @@ import { stripCodeBlocks, isCrossSourceLinksEnabled } from './link-extraction.ts
 import { isGenericEntityToken } from './entity-name-quality.ts';
 
 /** D2: hardcoded entity types for v1. Pack-aware extension is TODO-1. */
-export const LINKABLE_ENTITY_TYPES = ['person', 'company', 'organization', 'entity'] as const;
+// raclaw-fork: extended with raclaw-ops pack curated entity types (was upstream
+// ['person','company','organization','entity'] — ops entities never entered the gazetteer).
+export const LINKABLE_ENTITY_TYPES = ['person', 'company', 'organization', 'entity', 'service', 'server', 'project', 'repo', 'device', 'client'] as const;
 
 /**
  * Minimum title length for gazetteer inclusion. Filters out 2-3 char names
