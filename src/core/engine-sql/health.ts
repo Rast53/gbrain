@@ -116,7 +116,7 @@ export async function getHealth(
   const { rows: [aggregate] } = await exec.run(sqlFragment`
     WITH entity_pages AS (
       SELECT p.id FROM pages p
-      WHERE p.type IN ('entity', 'person', 'company') AND p.deleted_at IS NULL
+      WHERE p.type IN ('entity', 'person', 'company', 'service', 'server', 'project', 'repo', 'device', 'client') AND p.deleted_at IS NULL
         AND ${trustedSql(QUARANTINE_FILTER_FRAGMENT)}
         ${inScope.p}
     ),
@@ -184,7 +184,7 @@ export async function getHealth(
   const { rows: connected } = await exec.run<{ slug: string; link_count: number }>(sqlFragment`
     WITH entity_pages AS (
       SELECT p.id, p.slug FROM pages p
-      WHERE p.type IN ('entity', 'person', 'company') AND p.deleted_at IS NULL
+      WHERE p.type IN ('entity', 'person', 'company', 'service', 'server', 'project', 'repo', 'device', 'client') AND p.deleted_at IS NULL
         AND ${trustedSql(QUARANTINE_FILTER_FRAGMENT)}
         ${inScope.p}
     ),
