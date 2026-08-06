@@ -210,7 +210,7 @@ async function buildTargetTypeMap(engine: BrainEngine): Promise<Map<string, stri
   try {
     const result = await engine.executeRaw<{ slug: string; source_id: string; type: string }>(
       `SELECT slug, source_id, type FROM pages
-         WHERE type IN ('person', 'company', 'organization', 'entity')
+         WHERE type IN ('person', 'company', 'organization', 'entity', 'service', 'server', 'project', 'repo', 'device', 'client')
            AND deleted_at IS NULL`,
     );
     for (const row of result) {
