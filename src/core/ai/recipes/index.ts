@@ -27,6 +27,7 @@ import { azureOpenAI } from './azure-openai.ts';
 import { llamaServerReranker } from './llama-server-reranker.ts';
 import { nan } from './nan.ts';
 import { moonshot } from './moonshot.ts';
+import { opencodeGo } from './opencode-go.ts';
 import { mistral } from './mistral.ts';
 import { nvidia } from './nvidia.ts';
 import { perplexity } from './perplexity.ts';
@@ -53,6 +54,7 @@ const ALL: Recipe[] = [
   azureOpenAI,
   nan,
   moonshot,
+  opencodeGo,
   mistral,
   nvidia,
   perplexity,
