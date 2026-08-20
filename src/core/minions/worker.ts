@@ -1528,11 +1528,11 @@ export class MinionWorker extends EventEmitter {
       }
       // P1-R2.3 (raclaw fork): tw-msk-side alert outbox (drained by
       // gbrain-alert-emitter.timer; never depends on Helsinki). Adapted to
-      // 0.46: terminal required failures reach failJob with newStatus='failed'
-      // (dead/delayed are infra/retry states and must not page). errorText is
+      // 0.46: terminal required failures reach failJob with newStatus='dead'
+      // (delayed = retry, not terminal; upstream no longer uses 'failed' as a failJob status). errorText is
       // the failure detail; the required_failures struct no longer exists
       // upstream (deriveStatus classifies required-terminal as 'failed').
-      if (newStatus === 'failed') {
+      if (newStatus === 'dead') {
         try {
           const { appendFailureOutbox } = await import('./failure-outbox.ts');
           appendFailureOutbox({
