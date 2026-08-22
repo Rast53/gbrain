@@ -415,7 +415,7 @@ export async function judgeContradiction(input: JudgeInput): Promise<JudgeOutput
   const result = await callFn({
     model: input.model,
     messages: [{ role: 'user', content: prompt }],
-    maxTokens: 1024,
+    maxTokens: 4096,
     abortSignal: input.abortSignal,
   });
   if (isRefusalResponse(result)) {
