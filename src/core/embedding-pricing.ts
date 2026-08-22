@@ -35,6 +35,14 @@ export const EMBEDDING_PRICING: Record<string, EmbeddingPricing> = {
   // Legacy OpenAI ada (still common in older brains)
   'openai:text-embedding-ada-002': { pricePerMTok: 0.10 },
   // Voyage (https://docs.voyageai.com/docs/pricing, verified 2026-08-21)
+  // OpenRouter pass-through of OpenAI embeddings. OR exposes no embedding
+  // pricing endpoint (2026-08-22, /v1/models is chat-only); rate mirrors the
+  // OpenAI list price above. Used for budget-cap estimation only — actual
+  // billing is OR-side. Added after the 2026-08-20 voyage->OR te-3s@1024
+  // migration hit budget-tracker hard-fail (no pricing entry) on every
+  // scheduled embed-backfill.
+  'openrouter:openai/text-embedding-3-small': { pricePerMTok: 0.02 },
+  // Voyage (https://docs.voyageai.com/docs/pricing, verified 2026-08-21)
   'voyage:voyage-4-large':         { pricePerMTok: 0.12 },
   'voyage:voyage-4':               { pricePerMTok: 0.06 },
   'voyage:voyage-4-lite':          { pricePerMTok: 0.02 },
