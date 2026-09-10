@@ -2846,6 +2846,9 @@ export class PGLiteEngine implements BrainEngine {
     // origin (the authoring page, surfaced as origin_slug). The origin LEFT JOIN
     // carries the same ANY($) filter so an out-of-grant origin's slug nulls out.
     // Remote MCP clients always land here.
+    // Live-page visibility: both endpoints (f, t) must be undeleted so a
+    // soft-deleted page cannot leak through the link API / portal. The origin
+    // LEFT JOIN is intentionally unfiltered. Pinned by test/links-deleted-at-filter.test.ts.
     if (opts?.sourceIds && opts.sourceIds.length > 0) {
       const { rows } = await this.db.query(
         `SELECT f.slug as from_slug, t.slug as to_slug,
@@ -2855,7 +2858,8 @@ export class PGLiteEngine implements BrainEngine {
          JOIN pages f ON f.id = l.from_page_id
          JOIN pages t ON t.id = l.to_page_id
          LEFT JOIN pages o ON o.id = l.origin_page_id AND o.source_id = ANY($2::text[])
-         WHERE f.slug = $1 AND f.source_id = ANY($2::text[]) AND t.source_id = ANY($2::text[])`,
+         WHERE f.slug = $1 AND f.source_id = ANY($2::text[]) AND t.source_id = ANY($2::text[])
+           AND f.deleted_at IS NULL AND t.deleted_at IS NULL`,
         [slug, opts.sourceIds]
       );
       return rows as unknown as Link[];
@@ -2873,7 +2877,8 @@ export class PGLiteEngine implements BrainEngine {
          JOIN pages f ON f.id = l.from_page_id
          JOIN pages t ON t.id = l.to_page_id
          LEFT JOIN pages o ON o.id = l.origin_page_id
-         WHERE f.slug = $1 AND f.source_id = $2`,
+         WHERE f.slug = $1 AND f.source_id = $2
+           AND f.deleted_at IS NULL AND t.deleted_at IS NULL`,
         [slug, opts.sourceId]
       );
       return rows as unknown as Link[];
@@ -2886,7 +2891,8 @@ export class PGLiteEngine implements BrainEngine {
        JOIN pages f ON f.id = l.from_page_id
        JOIN pages t ON t.id = l.to_page_id
        LEFT JOIN pages o ON o.id = l.origin_page_id
-       WHERE f.slug = $1`,
+       WHERE f.slug = $1
+         AND f.deleted_at IS NULL AND t.deleted_at IS NULL`,
       [slug]
     );
     return rows as unknown as Link[];
@@ -2896,6 +2902,8 @@ export class PGLiteEngine implements BrainEngine {
     // #2200: federated grant scopes all three endpoints (mirrors getLinks) — the
     // referrer (from), the queried page (to), AND the origin — so neither a
     // foreign referrer nor a foreign origin slug is disclosed to the caller.
+    // Live-page visibility mirrors getLinks: filter f + t, leave origin JOIN
+    // unfiltered. Pinned by test/links-deleted-at-filter.test.ts.
     if (opts?.sourceIds && opts.sourceIds.length > 0) {
       const { rows } = await this.db.query(
         `SELECT f.slug as from_slug, t.slug as to_slug,
@@ -2905,7 +2913,8 @@ export class PGLiteEngine implements BrainEngine {
          JOIN pages f ON f.id = l.from_page_id
          JOIN pages t ON t.id = l.to_page_id
          LEFT JOIN pages o ON o.id = l.origin_page_id AND o.source_id = ANY($2::text[])
-         WHERE t.slug = $1 AND t.source_id = ANY($2::text[]) AND f.source_id = ANY($2::text[])`,
+         WHERE t.slug = $1 AND t.source_id = ANY($2::text[]) AND f.source_id = ANY($2::text[])
+           AND f.deleted_at IS NULL AND t.deleted_at IS NULL`,
         [slug, opts.sourceIds]
       );
       return rows as unknown as Link[];
@@ -2920,7 +2929,8 @@ export class PGLiteEngine implements BrainEngine {
          JOIN pages f ON f.id = l.from_page_id
          JOIN pages t ON t.id = l.to_page_id
          LEFT JOIN pages o ON o.id = l.origin_page_id
-         WHERE t.slug = $1 AND t.source_id = $2`,
+         WHERE t.slug = $1 AND t.source_id = $2
+           AND f.deleted_at IS NULL AND t.deleted_at IS NULL`,
         [slug, opts.sourceId]
       );
       return rows as unknown as Link[];
@@ -2933,7 +2943,8 @@ export class PGLiteEngine implements BrainEngine {
        JOIN pages f ON f.id = l.from_page_id
        JOIN pages t ON t.id = l.to_page_id
        LEFT JOIN pages o ON o.id = l.origin_page_id
-       WHERE t.slug = $1`,
+       WHERE t.slug = $1
+         AND f.deleted_at IS NULL AND t.deleted_at IS NULL`,
       [slug]
     );
     return rows as unknown as Link[];
@@ -3034,6 +3045,9 @@ export class PGLiteEngine implements BrainEngine {
       stepScope = `AND p2.source_id = $${idx}`;
       aggScope = `AND p3.source_id = $${idx}`;
     }
+    const liveSeed = 'AND p.deleted_at IS NULL';
+    const liveNeighbor = 'AND p2.deleted_at IS NULL';
+    const liveAgg = 'AND p3.deleted_at IS NULL';
 
     // T8 (v0.36+): frontier cap. When set, the recursive term applies a
     // parenthesized LIMIT N ORDER BY (slug, id) for stable selection. Per-
@@ -3052,6 +3066,7 @@ export class PGLiteEngine implements BrainEngine {
         WHERE g.depth < $2
           AND NOT (p2.id = ANY(g.visited))
           ${stepScope}
+          ${liveNeighbor}
         ORDER BY p2.slug ASC, p2.id ASC
         LIMIT $${capIdx})`;
     } else {
@@ -3061,7 +3076,8 @@ export class PGLiteEngine implements BrainEngine {
         JOIN pages p2 ON p2.id = l.to_page_id
         WHERE g.depth < $2
           AND NOT (p2.id = ANY(g.visited))
-          ${stepScope}`;
+          ${stepScope}
+          ${liveNeighbor}`;
     }
 
     // Cycle prevention: visited array tracks page IDs already in the path.
@@ -3069,7 +3085,7 @@ export class PGLiteEngine implements BrainEngine {
     const { rows } = await this.db.query(
       `WITH RECURSIVE graph AS (
         SELECT p.id, p.slug, p.title, p.type, 0 as depth, ARRAY[p.id] as visited
-        FROM pages p WHERE p.slug = $1 ${seedScope}
+        FROM pages p WHERE p.slug = $1 ${seedScope} ${liveSeed}
 
         UNION ALL
 
@@ -3085,7 +3101,7 @@ export class PGLiteEngine implements BrainEngine {
           (SELECT jsonb_agg(DISTINCT jsonb_build_object('to_slug', p3.slug, 'link_type', l2.link_type))
            FROM links l2
            JOIN pages p3 ON p3.id = l2.to_page_id
-           WHERE l2.from_page_id = g.id ${aggScope}),
+           WHERE l2.from_page_id = g.id ${aggScope} ${liveAgg}),
           '[]'::jsonb
         ) as links
       FROM graph g
@@ -3139,13 +3155,17 @@ export class PGLiteEngine implements BrainEngine {
       pfScope = `AND pf.source_id = $${idx}`;
       ptScope = `AND pt.source_id = $${idx}`;
     }
+    const liveSeed = 'AND p.deleted_at IS NULL';
+    const liveNeighbor = 'AND p2.deleted_at IS NULL';
+    const liveFrom = 'AND pf.deleted_at IS NULL';
+    const liveTo = 'AND pt.deleted_at IS NULL';
 
     let sql: string;
     if (direction === 'out') {
       sql = `
         WITH RECURSIVE walk AS (
           SELECT p.id, p.slug, 0::int AS depth, ARRAY[p.id] AS visited
-          FROM pages p WHERE p.slug = $1 ${seedScope}
+          FROM pages p WHERE p.slug = $1 ${seedScope} ${liveSeed}
           UNION ALL
           SELECT p2.id, p2.slug, w.depth + 1, w.visited || p2.id
           FROM walk w
@@ -3155,6 +3175,7 @@ export class PGLiteEngine implements BrainEngine {
             AND NOT (p2.id = ANY(w.visited))
             ${linkTypeWhere}
             ${stepScope}
+            ${liveNeighbor}
         )
         SELECT w.slug AS from_slug, p2.slug AS to_slug,
                l.link_type, l.context, w.depth + 1 AS depth
@@ -3164,13 +3185,14 @@ export class PGLiteEngine implements BrainEngine {
         WHERE w.depth < $2
           ${linkTypeWhere}
           ${stepScope}
+          ${liveNeighbor}
         ORDER BY depth, from_slug, to_slug
       `;
     } else if (direction === 'in') {
       sql = `
         WITH RECURSIVE walk AS (
           SELECT p.id, p.slug, 0::int AS depth, ARRAY[p.id] AS visited
-          FROM pages p WHERE p.slug = $1 ${seedScope}
+          FROM pages p WHERE p.slug = $1 ${seedScope} ${liveSeed}
           UNION ALL
           SELECT p2.id, p2.slug, w.depth + 1, w.visited || p2.id
           FROM walk w
@@ -3180,6 +3202,7 @@ export class PGLiteEngine implements BrainEngine {
             AND NOT (p2.id = ANY(w.visited))
             ${linkTypeWhere}
             ${stepScope}
+            ${liveNeighbor}
         )
         SELECT p2.slug AS from_slug, w.slug AS to_slug,
                l.link_type, l.context, w.depth + 1 AS depth
@@ -3189,6 +3212,7 @@ export class PGLiteEngine implements BrainEngine {
         WHERE w.depth < $2
           ${linkTypeWhere}
           ${stepScope}
+          ${liveNeighbor}
         ORDER BY depth, from_slug, to_slug
       `;
     } else {
@@ -3197,7 +3221,7 @@ export class PGLiteEngine implements BrainEngine {
       sql = `
         WITH RECURSIVE walk AS (
           SELECT p.id, 0::int AS depth, ARRAY[p.id] AS visited
-          FROM pages p WHERE p.slug = $1 ${seedScope}
+          FROM pages p WHERE p.slug = $1 ${seedScope} ${liveSeed}
           UNION ALL
           SELECT p2.id, w.depth + 1, w.visited || p2.id
           FROM walk w
@@ -3207,6 +3231,7 @@ export class PGLiteEngine implements BrainEngine {
             AND NOT (p2.id = ANY(w.visited))
             ${linkTypeWhere}
             ${stepScope}
+            ${liveNeighbor}
         )
         SELECT pf.slug AS from_slug, pt.slug AS to_slug,
                l.link_type, l.context, w.depth + 1 AS depth
@@ -3218,6 +3243,8 @@ export class PGLiteEngine implements BrainEngine {
           ${linkTypeWhere}
           ${pfScope}
           ${ptScope}
+          ${liveFrom}
+          ${liveTo}
         ORDER BY depth, from_slug, to_slug
       `;
     }
