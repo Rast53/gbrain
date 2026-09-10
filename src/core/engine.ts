@@ -1188,12 +1188,18 @@ export interface BrainEngine {
    * always route here (sourceScopeOpts emits an array for any allowedSources
    * grant); the scalar branch is internal/CLI and keeps cross-source visibility
    * (reconcileLinks + back-link validators depend on it).
+   *
+   * Both endpoints (`from` and `to` pages) are live-only (`deleted_at IS NULL`).
+   * The origin LEFT JOIN is not filtered — origin_slug is provenance, not a
+   * graph node. Soft-deleted pages therefore disappear from getLinks /
+   * getBacklinks / traverse and reappear after restore_page.
    */
   getLinks(slug: string, opts?: { sourceId?: string; sourceIds?: string[] }): Promise<Link[]>;
   /**
    * v0.31.8 (D12 + D16): same `opts.sourceId` semantics as `getLinks`,
    * applied to the to-page side of the join. #2200: `opts.sourceIds` federated
-   * grant constrains both endpoints (see `getLinks`).
+   * grant constrains both endpoints (see `getLinks`). Live-page visibility
+   * matches `getLinks` (`deleted_at IS NULL` on both endpoints; origin JOIN unfiltered).
    */
   getBacklinks(slug: string, opts?: { sourceId?: string; sourceIds?: string[] }): Promise<Link[]>;
   /**
