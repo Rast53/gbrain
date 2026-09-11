@@ -1484,7 +1484,7 @@ async function extractLinksFromDB(
       if (Number.isFinite(sinceMs) && updatedMs <= sinceMs) continue;
     }
 
-    const fullContent = page.compiled_truth + '\n' + page.timeline;
+    const fullContent = (page.compiled_truth ?? '') + '\n' + (page.timeline ?? '');
     // --include-frontmatter default OFF in v0.13 (codex tension 5, back-compat).
     // Migration orchestrator explicitly enables it for the one-time backfill;
     // user-invoked `gbrain extract links` stays outgoing-only.
@@ -1630,7 +1630,7 @@ async function extractTimelineFromDB(
       if (Number.isFinite(sinceMs) && updatedMs <= sinceMs) continue;
     }
 
-    const fullContent = page.compiled_truth + '\n' + page.timeline;
+    const fullContent = (page.compiled_truth ?? '') + '\n' + (page.timeline ?? '');
     const entries = parseTimelineEntries(fullContent);
 
     for (const entry of entries) {
@@ -1755,7 +1755,7 @@ export async function extractStaleFromDB(
     const processedRefs: Array<{ slug: string; source_id: string; extractedAt: string }> = [];
 
     for (const page of rows) {
-      const fullContent = page.compiled_truth + '\n' + page.timeline;
+      const fullContent = (page.compiled_truth ?? '') + '\n' + (page.timeline ?? '');
       const extracted = await extractPageLinks(
         page.slug, fullContent, page.frontmatter, page.type, resolver,
         { skipFrontmatter: !includeFrontmatter, globalBasename },

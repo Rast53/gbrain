@@ -28,10 +28,10 @@ import { ensureWellFormed } from './text-safe.ts';
  * OR updated_at > links_extracted_at`. It is an ISO-8601 string (NOT a number) —
  * the column is TIMESTAMPTZ and the predicate binds it as `::timestamptz`.
  */
-// 2026-07-10: bumped for the #2576 --stale nullResolver fix — sweeps before it
-// stamped pages with their bare wikilinks silently dropped; the bump re-flags
-// them so the fixed sweep re-extracts.
-export const LINK_EXTRACTOR_VERSION_TS = '2026-07-10T00:00:00Z';
+// 2026-09-11: bumped so extract --stale re-reads pages whose timeline
+// column uses unbolded `- YYYY-MM-DD:` list bullets (the write-path /
+// db-source extract previously scored those as zero entries).
+export const LINK_EXTRACTOR_VERSION_TS = '2026-09-11T00:00:00Z';
 
 // ─── Entity references ──────────────────────────────────────────
 
@@ -1171,14 +1171,27 @@ export interface TimelineCandidate {
   detail: string;
 }
 
-// Match: `- **YYYY-MM-DD** | summary` or `- **YYYY-MM-DD** -- summary`
-// or `- **YYYY-MM-DD** - summary` or just `**YYYY-MM-DD** | summary`.
-const TIMELINE_LINE_RE = /^\s*-?\s*\*\*(\d{4}-\d{2}-\d{2})\*\*\s*[|\-–—]+\s*(.+?)\s*$/;
+// Dated list bullets that live in `pages.timeline` (split off compiled_truth
+// at the `<!-- timeline -->` sentinel). Two shapes:
+//   1. Canonical / recommended-schema: `- **YYYY-MM-DD** | summary`
+//      (pipe, em/en/ascii dash, or `--` after a bold date; leading dash optional
+//      so a standalone `**YYYY-MM-DD** | summary` still matches).
+//   2. Fleet / History section: `- YYYY-MM-DD: summary` (no bold, colon
+//      separator). Year-month-only (`- 2026-07: …`) is NOT a full ISO date
+//      and is skipped. Bold is optional on list bullets; a bold date without
+//      a list marker still matches shape 1.
+// Capture groups: date is group 1 (list-bullet) OR group 2 (standalone bold);
+// summary is always group 3.
+const TIMELINE_LINE_RE =
+  /^\s*(?:[-*]\s+(?:\*\*)?(\d{4}-\d{2}-\d{2})(?:\*\*)?|\*\*(\d{4}-\d{2}-\d{2})\*\*)\s*(?:[:|]|[-–—]+)\s*(.+?)\s*$/;
 
 /**
  * Parse timeline entries from content. Looks at:
  *   - The full content (most pages have a top-level "## Timeline" heading).
- *   - Free-form `- **DATE** | text` lines anywhere.
+ *   - The `pages.timeline` column after splitBody (callers MUST concatenate
+ *     `compiled_truth + '\n' + timeline` — parsing body-only returns 0 when
+ *     dated bullets live only in the timeline column).
+ *   - Free-form `- **DATE** | text` and `- YYYY-MM-DD: text` list bullets.
  *
  * Skips dates that don't represent valid calendar dates (e.g. 2026-13-45).
  * Multi-line entries: a date line followed by indented or blank-then-text
@@ -1195,8 +1208,8 @@ export function parseTimelineEntries(content: string): TimelineCandidate[] {
       i++;
       continue;
     }
-    const date = m[1];
-    const summary = m[2].trim();
+    const date = m[1] ?? m[2];
+    const summary = m[3].trim();
     if (!isValidDate(date) || summary.length === 0) {
       i++;
       continue;

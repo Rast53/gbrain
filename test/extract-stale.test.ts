@@ -19,6 +19,14 @@ import { runExtract } from '../src/commands/extract.ts';
 import { LINK_EXTRACTOR_VERSION_TS } from '../src/core/link-extraction.ts';
 import type { PageInput } from '../src/core/types.ts';
 
+function isoDay(d: unknown): string {
+  if (d instanceof Date) return d.toISOString().slice(0, 10);
+  const s = String(d);
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  const parsed = new Date(s);
+  return Number.isNaN(parsed.getTime()) ? s.slice(0, 10) : parsed.toISOString().slice(0, 10);
+}
+
 let engine: PGLiteEngine;
 
 beforeAll(async () => {
@@ -117,6 +125,25 @@ describe('gbrain extract --stale', () => {
     expect(await stampOf('people/lonely')).not.toBeNull();
     // Nothing left stale.
     expect(await engine.countStalePagesForExtraction({ versionTs: LINK_EXTRACTOR_VERSION_TS })).toBe(0);
+  });
+
+  test('extracts unbolded timeline-column bullets (cron backup for remote writes)', async () => {
+    await engine.putPage('servers/fornex-usa', {
+      type: 'server' as any, title: 'Fornex USA',
+      compiled_truth: 'Canonical server entity. No dated list bullets in the body.',
+      timeline: `## History
+
+- 2026-07: provisioned for 3x-ui / Dallas exit
+- 2026-07-16: T702 migrated both pages from legacy default
+- 2026-07-23: dedupe merge — keep the canonical slug
+- 2026-08-24: **renamed to fornex-usa** (fleet naming)
+`,
+    });
+
+    await runExtract(engine, ['--stale']);
+
+    const entries = await engine.getTimeline('servers/fornex-usa');
+    expect(entries.map(e => isoDay(e.date)).sort()).toEqual(['2026-07-16', '2026-07-23', '2026-08-24']);
   });
 
   test('idempotent: second run finds 0 stale and creates no new links', async () => {

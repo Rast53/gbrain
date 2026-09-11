@@ -13,6 +13,14 @@ import { PGLiteEngine } from '../src/core/pglite-engine.ts';
 import { runExtract } from '../src/commands/extract.ts';
 import type { PageInput } from '../src/core/types.ts';
 
+function isoDay(d: unknown): string {
+  if (d instanceof Date) return d.toISOString().slice(0, 10);
+  const s = String(d);
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  const parsed = new Date(s);
+  return Number.isNaN(parsed.getTime()) ? s.slice(0, 10) : parsed.toISOString().slice(0, 10);
+}
+
 let engine: PGLiteEngine;
 
 beforeAll(async () => {
@@ -197,6 +205,23 @@ describe('gbrain extract timeline --source db', () => {
     await runExtract(engine, ['timeline', '--source', 'db']);
     const entries = await engine.getTimeline('people/alice');
     expect(entries.length).toBe(3);
+  });
+
+  test('extracts unbolded YYYY-MM-DD: bullets from the timeline column (body has none)', async () => {
+    await engine.putPage('servers/fornex-usa', {
+      type: 'server' as any, title: 'Fornex USA',
+      compiled_truth: 'Canonical server entity. No dated list bullets in the body.',
+      timeline: `## History
+
+- 2026-07: provisioned for 3x-ui / Dallas exit
+- 2026-07-16: T702 migrated both pages from legacy default
+- 2026-07-23: dedupe merge — keep the canonical slug
+- 2026-08-24: **renamed to fornex-usa** (fleet naming)
+`,
+    });
+    await runExtract(engine, ['timeline', '--source', 'db']);
+    const entries = await engine.getTimeline('servers/fornex-usa');
+    expect(entries.map(e => isoDay(e.date)).sort()).toEqual(['2026-07-16', '2026-07-23', '2026-08-24']);
   });
 
   test('--dry-run --json emits JSON, no DB writes', async () => {
