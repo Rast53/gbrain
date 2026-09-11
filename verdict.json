@@ -1,0 +1,17 @@
+{
+  "verdict": "FAIL",
+  "sha": "6f2873e48cdfedfd3b591e6a56e49fd7bb5a1fa7",
+  "reasons": [
+    "AC1 FAIL (live): trusted capture CLI with PR-head code against the live gbrain-db (source raclaw-canonical, slug test/write-path-extract-probe) wrote the page and its timeline column (83 chars, 1 dated bullet) but created 0 timeline_entries. put_page reported auto_timeline={error:'there is no unique or exclusion constraint matching the ON CONFLICT specification'} — the best-effort hook swallows the error, so the write looks successful while nothing lands.",
+    "AC6 FAIL (live): the cron-equivalent sweep (extract timeline --source db --source-id raclaw-canonical, the daily cron path) on PR-head code now PARSES 56 timeline rows out of 169 pages (was 0) but loses all of them to the same ON CONFLICT error: 'batch error (56 timeline rows lost) ... created 0 entries'. servers/fornex-usa (timeline column 356 chars, parser yields 2026-07-16/07-23/08-24) still has 0 entries; live max(timeline_entries.created_at) is unchanged at 2026-09-08 13:49:56. The task's success signal (cron stops writing 0 timeline entries) is not met on this brain.",
+    "Root cause of the live failure is not the parser: gbrain-db's idx_timeline_dedup is the upstream #3737 shape (page_id, date, md5(summary), source), while this PR's lineage (Rast53/gbrain master = fork rebased on upstream 2026-07-25, 375 commits behind upstream master 0.50.0.0) infers ON CONFLICT (page_id, date, summary, source) in postgres-engine. No constraint matches, so every addTimelineEntriesBatch insert errors on this brain, both on the write path and in the sweep. The fork's #2038 drift self-heal runs only inside runMigrations, which the CLI skips when no migrations are pending (config.version=146 >= fork max migration 125), so it never heals. The deployed service code is the upstream-based 0.48.5.0 tree, not the tree this PR patches.",
+    "AC2 PASS (live): same trusted capture created links immediately — link id 16972 test/write-path-extract-probe -> people/ivan-pashkov, created 2026-09-11 23:41:52.143811+00, ~1.2 s after the capture's captured_at 2026-09-11T23:41:50.954Z (daily cron is 03:25, so cron was not involved); page out_links=1.",
+    "AC3/AC4/AC5 PASS: parse fix produces records (own run 200 pass / 0 fail over the 4 touched test files on PR head; live sweep parsed 56 candidate rows vs 0 before); remote gate intact (test asserts auto_links={skipped:'remote'}, and src/mcp/http-transport.ts:404 still sets remote:true); auto_timeline=false is honored.",
+    "AC7 = no new failures, but CI is not green: on 6f2873e4 shards 2/5/7/10 fail (5/10/1/2 tests) plus verify (typecheck). The identical failure set and counts (5/10/1/2) and the same 3 typecheck errors exist on the merge-base master 68a1671d (run 34442791248) — pre-existing, not introduced by this PR; recorded as a red ci item rather than laundered to pass.",
+    "Verified without touching the PR branch and without committing: PR head re-read as 6f2873e48cdfedfd3b591e6a56e49fd7bb5a1fa7 (unchanged). Live test artifacts left in the brain: page test/write-path-extract-probe (raclaw-canonical) + its one link. Recommended next step: heal the dedup-index drift on gbrain-db (and/or port the parser change onto the deployed lineage), then re-run AC1/AC6 live."
+  ],
+  "model": "deepseek-flash",
+  "tokens_in": 0,
+  "tokens_out": 0,
+  "cost_usd": 0.0
+}
