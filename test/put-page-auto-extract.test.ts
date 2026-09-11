@@ -13,6 +13,7 @@ import { PGLiteEngine } from '../src/core/pglite-engine.ts';
 import { resetPgliteState } from './helpers/reset-pglite.ts';
 import { operationsByName } from '../src/core/operations.ts';
 import type { OperationContext } from '../src/core/operations.ts';
+import { resetGateway } from '../src/core/ai/gateway.ts';
 
 let engine: PGLiteEngine;
 
@@ -24,10 +25,17 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await engine.disconnect();
+  // Don't leak gateway state to sibling files in the same bun shard
+  // (the v0.40.4.1 gateway state-leak class).
+  resetGateway();
 }, 60_000);
 
 beforeEach(async () => {
   await resetPgliteState(engine);
+  // put_page computes noEmbed = !isAvailable('embedding'). A sibling test
+  // (or cli.ts module-load) may have configured a stale embedding key;
+  // reset so this file never hits a live embedder.
+  resetGateway();
   await engine.setConfig('auto_link', 'true');
   await engine.setConfig('auto_timeline', 'true');
 });

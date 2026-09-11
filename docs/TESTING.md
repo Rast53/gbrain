@@ -177,7 +177,9 @@ Unit tests and what they cover:
 - `test/data-research.test.ts` — recipe validation, MRR/ARR extraction, dedup, tracker parsing, HTML stripping.
 - `test/minions.test.ts` — Minions job queue: CRUD, state machine, backoff, stall detection, dependencies, worker lifecycle, lock management, claim mechanics, depth/child-cap, timeouts, cascade kill, idempotency, `child_done` inbox, attachments, removeOnComplete/Fail, `max_stalled` clamp/default/plumbing coverage.
 - `test/extract.test.ts` — link extraction, timeline extraction, frontmatter parsing, directory type inference.
-- `test/extract-db.test.ts` — `gbrain extract --source db`: typed link inference, idempotency, `--type` filter, `--dry-run` JSON output.
+- `test/extract-db.test.ts` — `gbrain extract --source db`: typed link inference, idempotency, `--type` filter, `--dry-run` JSON output, History-column (`pages.timeline`) unbolded `- YYYY-MM-DD:` extract.
+- `test/extract-stale.test.ts` — `gbrain extract --stale`: version-stamp catch-up, History-column timeline extract (cron backup for remote writes).
+- `test/put-page-auto-extract.test.ts` — trusted `put_page` write-path auto-link + auto-timeline (immediate, including `source_id` threading); remote MCP skip (`auto_links: {skipped:'remote'}`); `auto_timeline=false` honored.
 - `test/extract-fs.test.ts` — `gbrain extract --source fs`: first-run inserts + second-run reports zero, dry-run dedups candidates across files, second-run perf regression guard for the N+1 dedup bug.
 - `test/link-extraction.test.ts` — canonical `extractEntityRefs` both formats, `extractPageLinks` dedup, `inferLinkType` heuristics, `parseTimelineEntries` date variants, `isAutoLinkEnabled` config.
 - `test/graph-query.test.ts` — direction in/out/both, type filter, indented tree output.
