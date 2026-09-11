@@ -1080,7 +1080,7 @@ const put_page: Operation = {
       try {
         const enabled = await isAutoTimelineEnabled(ctx.engine);
         if (enabled) {
-          const fullContent = result.parsedPage.compiled_truth + '\n' + result.parsedPage.timeline;
+          const fullContent = (result.parsedPage.compiled_truth ?? '') + '\n' + (result.parsedPage.timeline ?? '');
           const entries = parseTimelineEntries(fullContent);
           if (entries.length > 0) {
             const batch = entries.map(e => ({
@@ -1088,6 +1088,9 @@ const put_page: Operation = {
               date: e.date,
               summary: e.summary,
               detail: e.detail || '',
+              // Non-default sources: omit source_id and the batch JOIN
+              // matches source_id='default' and inserts 0 rows silently.
+              ...(ctx.sourceId ? { source_id: ctx.sourceId } : {}),
             }));
             // v0.41.18.0: engine self-retries on Supavisor circuit-breaker
             // recovery. auditSite label routes the audit JSONL emission so
@@ -1232,7 +1235,7 @@ async function runAutoLink(
   parsed: { type: PageType; compiled_truth: string; timeline: string; frontmatter: Record<string, unknown> },
   opts?: { sourceId?: string },
 ): Promise<{ created: number; removed: number; errors: number; unresolved: UnresolvedFrontmatterRef[] }> {
-  const fullContent = parsed.compiled_truth + '\n' + parsed.timeline;
+  const fullContent = (parsed.compiled_truth ?? '') + '\n' + (parsed.timeline ?? '');
   // v0.31.8 (codex OV-2): thread sourceId through every read + write inside
   // reconcileLinks. Without this the FS walker reads cross-source links/slugs
   // but writes scoped to one source — phantom stale-deletions and duplicate
