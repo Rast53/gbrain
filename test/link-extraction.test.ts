@@ -852,22 +852,27 @@ More prose here.
   });
 
   test('parses unbolded - YYYY-MM-DD: bullets that live in the timeline column', () => {
-    // Real shape of pages.timeline after splitBody (e.g. servers/fornex-usa):
-    // dated History bullets without **bold** and with a colon, not a pipe.
-    // Body-only parse must stay empty — that was the zero-entry bug. Concatenating
-    // the timeline column is the fix, not a second parser.
+    // Shape of pages.timeline after splitBody: dated History bullets without
+    // **bold** and with a colon, not a pipe. Body-only parse must stay empty —
+    // that was the zero-entry bug. Concatenating the timeline column is the
+    // fix, not a second parser.
     const compiled_truth = 'Canonical server entity. No dated list bullets here.';
     const timeline = `## History
 
-- 2026-07: provisioned for 3x-ui / Dallas exit
-- 2026-07-16: T702 migrated both pages from legacy default
+- 2026-07: provisioned as the primary exit node
+- 2026-07-16: operator migrated both pages from legacy default
 - 2026-07-23: dedupe merge — keep the canonical slug
-- 2026-08-24: **renamed to fornex-usa** (fleet naming)
+- 2026-08-24: **renamed to probe-example** (fleet naming)
 `;
     expect(parseTimelineEntries(compiled_truth)).toEqual([]);
     const entries = parseTimelineEntries(compiled_truth + '\n' + timeline);
     expect(entries.map(e => e.date).sort()).toEqual(['2026-07-16', '2026-07-23', '2026-08-24']);
-    expect(entries.find(e => e.date === '2026-08-24')?.summary).toContain('renamed to fornex-usa');
+    expect(entries.find(e => e.date === '2026-08-24')?.summary).toContain('renamed to probe-example');
+  });
+
+  test('does not treat a hyphen glued to the date as a separator', () => {
+    expect(parseTimelineEntries('- 2026-07-16-extra is not a timeline entry')).toEqual([]);
+    expect(parseTimelineEntries('- **2026-07-16**-extra still not an entry')).toEqual([]);
   });
 });
 

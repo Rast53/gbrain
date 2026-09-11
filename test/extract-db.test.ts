@@ -208,19 +208,19 @@ describe('gbrain extract timeline --source db', () => {
   });
 
   test('extracts unbolded YYYY-MM-DD: bullets from the timeline column (body has none)', async () => {
-    await engine.putPage('servers/fornex-usa', {
-      type: 'server' as any, title: 'Fornex USA',
+    await engine.putPage('servers/probe-example', {
+      type: 'server' as any, title: 'Probe Example',
       compiled_truth: 'Canonical server entity. No dated list bullets in the body.',
       timeline: `## History
 
-- 2026-07: provisioned for 3x-ui / Dallas exit
-- 2026-07-16: T702 migrated both pages from legacy default
+- 2026-07: provisioned as the primary exit node
+- 2026-07-16: operator migrated both pages from legacy default
 - 2026-07-23: dedupe merge — keep the canonical slug
-- 2026-08-24: **renamed to fornex-usa** (fleet naming)
+- 2026-08-24: **renamed to probe-example** (fleet naming)
 `,
     });
     await runExtract(engine, ['timeline', '--source', 'db']);
-    const entries = await engine.getTimeline('servers/fornex-usa');
+    const entries = await engine.getTimeline('servers/probe-example');
     expect(entries.map(e => isoDay(e.date)).sort()).toEqual(['2026-07-16', '2026-07-23', '2026-08-24']);
   });
 

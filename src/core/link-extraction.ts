@@ -1174,16 +1174,18 @@ export interface TimelineCandidate {
 // Dated list bullets that live in `pages.timeline` (split off compiled_truth
 // at the `<!-- timeline -->` sentinel). Two shapes:
 //   1. Canonical / recommended-schema: `- **YYYY-MM-DD** | summary`
-//      (pipe, em/en/ascii dash, or `--` after a bold date; leading dash optional
-//      so a standalone `**YYYY-MM-DD** | summary` still matches).
+//      (pipe, em/en dash, or space-wrapped `-` / `--` after a bold date;
+//      leading dash optional so a standalone `**YYYY-MM-DD** | summary`
+//      still matches).
 //   2. Fleet / History section: `- YYYY-MM-DD: summary` (no bold, colon
 //      separator). Year-month-only (`- 2026-07: …`) is NOT a full ISO date
-//      and is skipped. Bold is optional on list bullets; a bold date without
-//      a list marker still matches shape 1.
+//      and is skipped. A hyphen glued to the date (`- 2026-07-16-extra`)
+//      is NOT a separator. Bold is optional on list bullets; a bold date
+//      without a list marker still matches shape 1.
 // Capture groups: date is group 1 (list-bullet) OR group 2 (standalone bold);
 // summary is always group 3.
 const TIMELINE_LINE_RE =
-  /^\s*(?:[-*]\s+(?:\*\*)?(\d{4}-\d{2}-\d{2})(?:\*\*)?|\*\*(\d{4}-\d{2}-\d{2})\*\*)\s*(?:[:|]|[-–—]+)\s*(.+?)\s*$/;
+  /^\s*(?:[-*]\s+(?:\*\*)?(\d{4}-\d{2}-\d{2})(?:\*\*)?|\*\*(\d{4}-\d{2}-\d{2})\*\*)(?:\s*[:|]\s*|\s*[–—]+\s*|\s+-{1,2}\s+)(.+?)\s*$/;
 
 /**
  * Parse timeline entries from content. Looks at:
