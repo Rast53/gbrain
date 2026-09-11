@@ -1,0 +1,87 @@
+{
+  "schema": "evidence.v1",
+  "sha": "6f2873e48cdfedfd3b591e6a56e49fd7bb5a1fa7",
+  "items": [
+    {
+      "id": "1",
+      "type": "test",
+      "result": "fail",
+      "checked_with": "ssh tw: bun src/cli.ts capture --file /tmp/probe-write-path.md --slug test/write-path-extract-probe --source raclaw-canonical (PR head 6f2873e4 checkout /opt/gbrain/verify-pr12) then docker exec gbrain-db psql -U gbrain -d gbrain",
+      "proof": "capture returned status=created_or_updated, written=true, captured_at 2026-09-11T23:41:50.954Z; SQL: pages.timeline length 83 (bullets '- 2026-09-12: probe event written via capture CLI'), timeline_entries for the page = 0. Direct put_page run of the same content returned auto_timeline={\"error\":\"there is no unique or exclusion constraint matching the ON CONFLICT specification\"}; parseTimelineEntries(content) = ['2026-09-12']. total timeline_entries 62, max(created_at) 2026-09-08 13:49:56+00 (unchanged)."
+    },
+    {
+      "id": "2",
+      "type": "test",
+      "result": "pass",
+      "checked_with": "same trusted capture + SQL select from links where from_page_id = page of test/write-path-extract-probe",
+      "proof": "1 link created in the same put_page call: id 16972, link_type mentions, link_source markdown, created_at 2026-09-11 23:41:52.143811+00 (capture started 23:41:48, captured_at 23:41:50.954Z); out_links=1 for the page. Daily cron is 03:25, so the edge was not cron-made."
+    },
+    {
+      "id": "3",
+      "type": "test",
+      "result": "pass",
+      "checked_with": "ssh tw: bun test test/link-extraction.test.ts test/extract-db.test.ts test/extract-stale.test.ts test/put-page-auto-extract.test.ts on PR head; plus live extract timeline --source db --source-id raclaw-canonical",
+      "proof": "own run: 200 pass / 0 fail, 486 expect() calls, 4 files. CI logs of 6f2873e4 show all 9 new cases passing, e.g. '(pass) parseTimelineEntries > parses unbolded - YYYY-MM-DD: bullets that live in the timeline column', '(pass) gbrain extract timeline --source db > extracts unbolded YYYY-MM-DD: bullets from the timeline column (body has none)', '(pass) gbrain extract --stale > extracts unbolded timeline-column bullets (cron backup for remote writes)'. Live: the sweep parsed 56 timeline rows from 169 pages where the pre-fix/deployed code parses 0, and fornex-usa parses ['2026-07-16','2026-07-23','2026-08-24']."
+    },
+    {
+      "id": "4",
+      "type": "test",
+      "result": "pass",
+      "checked_with": "test/put-page-auto-extract.test.ts case 'remote MCP put_page skips auto_links (security gate)' + source read of src/mcp/http-transport.ts and src/core/operations.ts",
+      "proof": "(pass) in own run and in CI: expects auto_links={skipped:'remote'}, auto_timeline={skipped:'remote'}, getLinks/getTimeline empty. src/mcp/http-transport.ts:404 (and serve-http.ts:1873) still set remote:true for MCP calls, and put_page keeps ctx.remote !== false && !trustedWorkspace -> {skipped:'remote'}; the PR does not touch that branch."
+    },
+    {
+      "id": "5",
+      "type": "test",
+      "result": "pass",
+      "checked_with": "test/put-page-auto-extract.test.ts case 'auto_timeline=false trusted write does not extract timeline' (own run + CI log of 6f2873e4)",
+      "proof": "(pass): with config auto_timeline=false, trusted put_page returns no auto_timeline field and getTimeline(slug) = []; isAutoTimelineEnabled still reads the config flag (src/core/link-extraction.ts:1307) and the PR does not alter that gate."
+    },
+    {
+      "id": "6",
+      "type": "test",
+      "result": "fail",
+      "checked_with": "ssh tw (PR head /opt/gbrain/verify-pr12): bun src/cli.ts extract timeline --source db --source-id raclaw-canonical; and deployed lineage /opt/gbrain/repo-upgrade-candidate (0.48.5.0) same sweep; SQL check on servers/fornex-usa",
+      "proof": "PR head: 'batch error (56 timeline rows lost): there is no unique or exclusion constraint matching the ON CONFLICT specification' then 'Timeline: created 0 entries from 169 pages (db source)'. Deployed 0.48.5.0 code: 'created 0 entries from 169 pages' (its parser matches only bold-pipe dates; its ON CONFLICT target does match the live index). SQL after both runs: servers/fornex-usa timeline length 356, timeline_entries = 0; brain-wide max(created_at) still 2026-09-08 13:49:56+00."
+    },
+    {
+      "id": "7",
+      "type": "ci",
+      "result": "fail",
+      "checked_with": "gh api repos/Rast53/gbrain/commits/6f2873e48cdfedfd3b591e6a56e49fd7bb5a1fa7/check-runs and gh run view --log-failed; compared against master 68a1671d run 34442791248",
+      "proof": "RED on the PR head: verify (job 103455655789, '1/31 checks did not pass — Failed: typecheck', same 3 pre-existing TS errors incl. src/core/operations.ts duplicate source_id in list_pages) and test shards 2/5/7/10 (jobs 103455655857/103455655834/103455655866/103455655892) with 5/10/1/2 failing tests (retrieval-upgrade, zeroentropy switch, autopilot global maintenance, check-update CLI, gateway defaults). Merge-base master 68a1671d run 34442791248 fails with the IDENTICAL test names and counts (5/10/1/2) and the same typecheck errors — pre-existing, not introduced here. Recorded as fail (not laundered); no new failures attributable to this PR."
+    },
+    {
+      "id": "7b",
+      "type": "test",
+      "result": "pass",
+      "checked_with": "ssh tw, PR head checkout: bun test of the 4 files touched by the PR (bun 1.3.14, bun install --frozen-lockfile)",
+      "proof": "200 pass / 0 fail / 486 expect() calls across test/link-extraction.test.ts, test/extract-db.test.ts, test/extract-stale.test.ts, test/put-page-auto-extract.test.ts — the files this PR changes are green, including the 9 new cases."
+    },
+    {
+      "id": "8",
+      "type": "diff",
+      "result": "pass",
+      "checked_with": "gh api repos/Rast53/gbrain/pulls/12/files --paginate + git diff origin/master...origin/cursor/TASK-gbrain-write-path-extract (merge-base is ancestor of master)",
+      "proof": "9 files, 258 insertions / 17 deletions, in scope: parser + source_id threading + docs + tests. No forbidden paths (no .github/workflows, migrations, docker, secrets, static UI). Existing test files were extended by appends only (+25 extract-db, +27 extract-stale, +24 link-extraction; no existing assertion changed) — REVIEW-TESTS is a human-review signal, noted. LINK_EXTRACTOR_VERSION_TS bumped 2026-07-10 -> 2026-09-11.",
+      "paths": [
+        "src/core/link-extraction.ts",
+        "src/core/operations.ts",
+        "src/commands/extract.ts",
+        "test/put-page-auto-extract.test.ts",
+        "test/extract-db.test.ts",
+        "test/extract-stale.test.ts",
+        "test/link-extraction.test.ts",
+        "docs/TESTING.md",
+        "docs/architecture/KEY_FILES.md"
+      ]
+    },
+    {
+      "id": "9",
+      "type": "manual",
+      "result": "fail",
+      "checked_with": "SQL on gbrain-db (pg_indexes, config.version) + source read of src/core/migrate.ts:6074 and src/core/timeline-dedup-repair.ts vs deployed /opt/gbrain/repo-upgrade-candidate",
+      "proof": "Live schema: CREATE UNIQUE INDEX idx_timeline_dedup ... USING btree (page_id, date, md5(summary), source) — the upstream #3737 shape, and config.version=146 while the PR lineage's max migration is ~v125, so no migration is pending and the fork's #2038 self-heal (only invoked at the top of runMigrations, src/core/migrate.ts:6074) is never reached by the CLI bootstrap. Deployed code (0.48.5.0) infers ON CONFLICT (page_id, date, md5(summary), source) and matches the live index; the PR lineage infers (page_id, date, summary, source) and cannot. Non-blocking as a manifest entry, but it is the reason AC1/AC6 fail live."
+    }
+  ]
+}
