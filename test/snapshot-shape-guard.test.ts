@@ -105,7 +105,7 @@ test('memo: stale hash is terminal — tar never read, repeat calls short-circui
 
 const schemaInputs = [
   'migrate.ts', 'pglite-schema.ts', 'fts-language.ts', 'vector-index.ts', 'ai/defaults.ts',
-  'timeline-dedup-repair.ts', 'pages-upsert-arbiter.ts', 'link-extraction.ts',
+  'timeline-dedup-repair.ts', 'pages-upsert-arbiter.ts', 'schema-self-heals.ts', 'link-extraction.ts',
   'grants/schema.ts', 'grants/migration.ts', 'grants/model.ts', 'grants/service.ts', 'grants/profiles.ts',
   'scope.ts', 'sql-query.ts', 'minions/tools/brain-allowlist.ts', 'facts/withdrawal-schema.ts',
 ];

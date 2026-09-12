@@ -122,40 +122,11 @@ export async function doctorReportRemote(
     checks.push({ name: 'schema_version', status: 'warn', message: 'Could not check schema version' });
   }
 
-  // 2b. #2038: idx_timeline_dedup shape. A renumbered-during-merge migration
-  // (v102) can be recorded-as-applied without its DDL running, leaving the
-  // 3-column index in place — every timeline write then fails the 4-column
-  // ON CONFLICT. The version counter can't see this, so check the index SHAPE.
-  try {
-    const { checkTimelineDedupIndex } = await import('../../core/timeline-dedup-repair.ts');
-    const idx = await checkTimelineDedupIndex(engine);
-    if (!idx.tablePresent || !idx.needsRepair) {
-      checks.push({
-        name: 'timeline_dedup_index',
-        status: 'ok',
-        // #3737: canonical shape keys md5(summary) so long summaries can't
-        // overflow the btree row cap.
-        message: idx.tablePresent ? 'idx_timeline_dedup has the md5-keyed 4-column shape' : 'no timeline_entries table yet',
-      });
-    } else {
-      checks.push({
-        name: 'timeline_dedup_index',
-        status: 'fail',
-        message:
-          `idx_timeline_dedup is ${idx.indexPresent ? `(${idx.columns.join(', ')})` : 'absent'}, ` +
-          `expected (page_id, date, md5(summary), source) — timeline writes are failing (#2038/#3737). ` +
-          `Run \`gbrain apply-migrations --force-schema\` to heal it.`,
-      });
-    }
-  } catch {
-    checks.push({ name: 'timeline_dedup_index', status: 'warn', message: 'Could not check idx_timeline_dedup shape' });
-  }
-
-  // 2c. #550: pages(source_id, slug) upsert arbiter — same drift class as 2b.
-  // When the arbiter is missing, EVERY putPage fails with "no unique or
-  // exclusion constraint" and the version counter can't see it.
+  // 2b / 2c. Shape-keyed schema heals the version ledger cannot see.
+  // Shared helpers so local `gbrain doctor` and remote doctor cannot drift.
   {
-    const { pagesUpsertArbiterCheck } = await import('./checks/core-health.ts');
+    const { timelineDedupIndexCheck, pagesUpsertArbiterCheck } = await import('./checks/core-health.ts');
+    checks.push(await timelineDedupIndexCheck(engine));
     checks.push(await pagesUpsertArbiterCheck(engine));
   }
 

@@ -12,8 +12,13 @@
  * silently break brain-wide.
  *
  * The version counter can't detect this, so the repair is keyed off the actual
- * index SHAPE and runs on every migrate pass (including the no-pending path).
- * Idempotent: a no-op when the index is already 4-column.
+ * index SHAPE and runs on every migrate pass (including the no-pending path)
+ * AND on the CLI/serve `tryRunPendingMigrations` `not_needed` path — boot
+ * previously skipped `runMigrations` when the ledger was current, which left
+ * a drifted index in place forever. Migration v150 re-applies the same heal
+ * as a versioned idempotent handler so `gbrain apply-migrations --yes` lands
+ * it without `--force-schema`.
+ * Idempotent: a no-op when the index is already the md5-keyed 4-column shape.
  */
 
 import type { BrainEngine } from './engine.ts';

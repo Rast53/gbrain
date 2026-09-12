@@ -8,8 +8,8 @@ import {
   isStatementTimeoutError,
   isRetryableConnError,
 } from './retry-matcher.ts';
-import { repairTimelineDedupIndex, repairLegacyTimelineSourceRows } from './timeline-dedup-repair.ts';
-import { repairPagesUpsertArbiter } from './pages-upsert-arbiter.ts';
+import { checkTimelineDedupIndex, repairTimelineDedupIndex, repairLegacyTimelineSourceRows } from './timeline-dedup-repair.ts';
+import { runSchemaSelfHeals } from './schema-self-heals.ts';
 import { GRANT_COLUMNS_SQL, GRANT_AUDIT_SCHEMA_SQL, GRANT_SPEND_COLUMNS_SQL } from './grants/schema.ts';
 import { FACT_WITHDRAWAL_SCHEMA_SQL, FACT_WITHDRAWAL_BACKFILL_SQL } from './facts/withdrawal-schema.ts';
 import { repairLegacyClientGrants } from './grants/migration.ts';
@@ -6551,6 +6551,39 @@ CREATE TRIGGER minion_queue_protocol BEFORE INSERT OR UPDATE ON minion_jobs
   FOR EACH ROW EXECUTE FUNCTION enforce_minion_queue_protocol();
     `,
   },
+  {
+    version: 150,
+    name: 'timeline_dedup_index_shape_heal',
+    // Re-apply the canonical idx_timeline_dedup shape (#2038 / #3737).
+    //
+    // v138 (`timeline_dedup_md5_summary`) can be recorded-as-applied while the
+    // live index stays the pre-md5 3-column or raw-summary 4-column form —
+    // `tryRunPendingMigrations` then returns `not_needed` (ledger current) and
+    // every `ON CONFLICT (page_id, date, md5(summary), source)` fails with
+    // "no unique or exclusion constraint matching the ON CONFLICT specification".
+    // Handler delegates to repairTimelineDedupIndex (dedupe-then-rebuild;
+    // idempotent no-op on the healthy md5 shape). Existing rows are preserved
+    // except true 4-tuple duplicates, which collapse to MIN(id).
+    idempotent: true,
+    sql: '',
+    handler: async (engine) => {
+      const r = await repairTimelineDedupIndex(engine);
+      if (r.repaired) {
+        migrationNotice(
+          `  NOTICE: v150 rebuilt idx_timeline_dedup ` +
+          `${r.before.join(',') || '(absent)'} → page_id,date,md5(summary),source` +
+          (r.collapsedDuplicates > 0
+            ? ` (collapsed ${r.collapsedDuplicates} duplicate row(s))`
+            : '') +
+          ` so timeline ON CONFLICT matches the insert sites (#2038/#3737).\n`,
+        );
+      }
+    },
+    verify: async (engine) => {
+      const status = await checkTimelineDedupIndex(engine);
+      return !status.tablePresent || !status.needsRepair;
+    },
+  },
 ];
 
 export const LATEST_VERSION = MIGRATIONS.length > 0
@@ -6804,6 +6837,11 @@ export interface TryRunPendingMigrationsOpts {
     hasPending?: () => Promise<boolean>;
     sleep?: (ms: number) => Promise<void>;
     now?: () => number;
+    /**
+     * Override the shape-keyed schema self-heals that run even when no
+     * version is pending (#2038 boot gap). Default: runSchemaSelfHeals.
+     */
+    selfHeal?: (engine: BrainEngine) => Promise<void>;
   };
 }
 
@@ -6818,9 +6856,17 @@ export async function tryRunPendingMigrations(
   const hasPending = opts._hooks?.hasPending ?? (() => hasPendingMigrations(engine));
   const sleep = opts._hooks?.sleep ?? ((ms: number) => new Promise(r => setTimeout(r, ms)));
   const now = opts._hooks?.now ?? (() => Date.now());
+  const selfHeal = opts._hooks?.selfHeal ?? ((eng: BrainEngine) => runSchemaSelfHeals(eng));
 
-  // Quick early-exit: if no migrations are actually pending, skip entirely.
-  if (!await hasPending()) return { status: 'not_needed' };
+  // Quick early-exit: if no versioned migrations are pending, still run the
+  // shape-keyed self-heals. `runMigrations` already heals on its no-pending
+  // path, but CLI/serve boot goes through THIS helper, which used to skip
+  // runMigrations entirely — a drifted idx_timeline_dedup then broke every
+  // timeline ON CONFLICT until someone ran `apply-migrations --force-schema`.
+  if (!await hasPending()) {
+    try { await selfHeal(engine); } catch { /* best-effort; doctor reports independently */ }
+    return { status: 'not_needed' };
+  }
 
   let attempts = 0;
   let lastErr: Error | null = null;
@@ -6889,41 +6935,11 @@ export async function runMigrations(engine: BrainEngine): Promise<{ applied: num
 
   const pending = sorted.filter(m => m.version > current);
 
-  // #2038: schema-drift self-heal. A migration renumbered during a master
-  // merge (v102 timeline dedup, originally v99) can be recorded-as-applied
-  // without its DDL ever running — the version counter can't see it. Repair
-  // the known drift on EVERY pass, including when nothing is pending (the
-  // affected brains are stamped AHEAD of the missing migration, so they never
-  // reach the loop below). Best-effort + idempotent: a no-op on a healthy
-  // index; `doctor` surfaces it independently if this ever fails.
-  try {
-    const r = await repairTimelineDedupIndex(engine);
-    if (r.repaired) {
-      console.error(
-        `[migrate] healed idx_timeline_dedup drift (#2038): ${r.before.join(',') || '(absent)'} ` +
-        `→ page_id,date,md5(summary),source` +
-        (r.collapsedDuplicates > 0 ? ` (collapsed ${r.collapsedDuplicates} duplicate row(s))` : ''),
-      );
-    }
-  } catch { /* best-effort; doctor reports the drift if this couldn't run */ }
-
-  // #550: same drift class for the pages upsert arbiter. When the
-  // UNIQUE(source_id, slug) constraint vanishes (partial restore, manual DDL,
-  // name-only migration guards), EVERY putPage fails with "no unique or
-  // exclusion constraint" and neither re-initSchema nor the version counter
-  // can see it. ADD-only self-heal; refuses (loudly) on duplicate rows.
-  try {
-    const p = await repairPagesUpsertArbiter(engine);
-    if (p.repaired) {
-      console.error(`[migrate] restored pages_source_slug_key UNIQUE(source_id, slug) (#550)`);
-    } else if (p.reason === 'duplicates') {
-      console.error(
-        `[migrate] cannot restore pages_source_slug_key: ${p.duplicateGroups} duplicate ` +
-        `(source_id, slug) group(s) exist — page upserts will keep failing until the ` +
-        `duplicates are resolved (#550). See \`gbrain doctor\`.`,
-      );
-    }
-  } catch { /* best-effort; doctor reports the drift if this couldn't run */ }
+  // Shape-keyed heals run even when nothing is pending (the affected brains
+  // are stamped AHEAD of the missing migration, so they never reach the loop
+  // below). tryRunPendingMigrations shares the same helper on its not_needed
+  // boot path so CLI/serve don't skip this when the ledger is current.
+  await runSchemaSelfHeals(engine);
 
   if (pending.length === 0) {
     return { applied: 0, current };

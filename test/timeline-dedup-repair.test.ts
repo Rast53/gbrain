@@ -16,6 +16,7 @@ import {
   repairTimelineDedupIndex,
 } from '../src/core/timeline-dedup-repair.ts';
 import { importFromContent } from '../src/core/import-file.ts';
+import { timelineDedupIndexCheck } from '../src/commands/doctor/checks/core-health.ts';
 
 let engine: PGLiteEngine;
 let pageId: string;
@@ -200,7 +201,7 @@ describe('#3737 md5-keyed dedup index', () => {
 // ─── #3957: legacy (source='') row shape repair ──────────────────────────
 
 import { repairLegacyTimelineSourceRows } from '../src/core/timeline-dedup-repair.ts';
-import { MIGRATIONS } from '../src/core/migrate.ts';
+import { MIGRATIONS, LATEST_VERSION, runMigrations, tryRunPendingMigrations } from '../src/core/migrate.ts';
 import { extractStaleFromDB } from '../src/commands/extract.ts';
 
 describe("#3957 legacy-row (source='') shape repair", () => {
@@ -338,5 +339,88 @@ describe("#3957 legacy-row (source='') shape repair", () => {
     expect(typeof m!.handler).toBe('function');
     expect(m!.sql).toBe('');
     expect(m!.idempotent).toBe(true);
+  });
+});
+
+describe('v150 idx_timeline_dedup shape heal + CLI boot path', () => {
+  test('migration v150 ships the shape heal (handler-only, idempotent, verify-hooked)', () => {
+    const m = MIGRATIONS.find(x => x.version === 150);
+    expect(m).toBeDefined();
+    expect(m!.name).toBe('timeline_dedup_index_shape_heal');
+    expect(typeof m!.handler).toBe('function');
+    expect(typeof m!.verify).toBe('function');
+    expect(m!.sql).toBe('');
+    expect(m!.idempotent).toBe(true);
+  });
+
+  test('v150 pending on a 3-column index heals without dropping distinct rows', async () => {
+    await regressTo3Col();
+    await engine.executeRaw(
+      `INSERT INTO timeline_entries (page_id, date, summary, source, detail)
+         VALUES ($1, '2026-07-16', 'migrated from default', 'markdown', ''),
+                ($1, '2026-07-23', 'dedupe merge', 'markdown', ''),
+                ($1, '2026-08-24', 'renamed', 'markdown', '')`,
+      [pageId],
+    );
+    await engine.setConfig('version', '149');
+
+    const { applied } = await runMigrations(engine);
+    expect(applied).toBeGreaterThanOrEqual(1);
+
+    const after = await checkTimelineDedupIndex(engine);
+    expect(after.columns).toEqual(['page_id', 'date', 'md5(summary)', 'source']);
+    expect(after.needsRepair).toBe(false);
+
+    const rows = await engine.executeRaw<{ n: string }>(
+      `SELECT COUNT(*)::text AS n FROM timeline_entries WHERE page_id = $1`,
+      [pageId],
+    );
+    expect(parseInt(rows[0].n, 10)).toBe(3);
+
+    // The insert-site conflict target now matches — a replay does not error
+    // and does not duplicate.
+    await engine.executeRaw(
+      `INSERT INTO timeline_entries (page_id, date, source, summary, detail)
+         SELECT $1, '2026-07-16'::date, 'markdown', 'migrated from default', ''
+         ON CONFLICT (page_id, date, md5(summary), source) DO NOTHING`,
+      [pageId],
+    );
+    const again = await engine.executeRaw<{ n: string }>(
+      `SELECT COUNT(*)::text AS n FROM timeline_entries WHERE page_id = $1`,
+      [pageId],
+    );
+    expect(parseInt(again[0].n, 10)).toBe(3);
+  });
+
+  test('tryRunPendingMigrations heals a drifted index when the ledger is current', async () => {
+    await regressTo3Col();
+    await engine.setConfig('version', String(LATEST_VERSION));
+    const result = await tryRunPendingMigrations(engine);
+    expect(result.status).toBe('not_needed');
+    const after = await checkTimelineDedupIndex(engine);
+    expect(after.needsRepair).toBe(false);
+    expect(after.columns).toEqual(['page_id', 'date', 'md5(summary)', 'source']);
+  });
+
+  test('a second migration pass is a no-op (idempotent)', async () => {
+    await regressTo3Col();
+    await engine.setConfig('version', '149');
+    await runMigrations(engine);
+    const second = await runMigrations(engine);
+    expect(second.applied).toBe(0);
+    expect((await checkTimelineDedupIndex(engine)).needsRepair).toBe(false);
+  });
+
+  test('local doctor timeline_dedup_index fails on 3-column drift and ok after heal', async () => {
+    await regressTo3Col();
+    const drifted = await timelineDedupIndexCheck(engine);
+    expect(drifted.status).toBe('fail');
+    expect(drifted.message).toContain('md5(summary)');
+    expect(drifted.message).toContain('apply-migrations');
+
+    await repairTimelineDedupIndex(engine);
+    const healthy = await timelineDedupIndexCheck(engine);
+    expect(healthy.status).toBe('ok');
+    expect(healthy.message).toContain('md5-keyed');
   });
 });

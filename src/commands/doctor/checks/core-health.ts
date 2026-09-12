@@ -12,6 +12,7 @@ import { REPAIR_SOURCE_CONFIG_SQL } from '../../../core/source-config-sql.ts';
 import { loadConfig } from '../../../core/config.ts';
 import type { ProgressReporter } from '../../../core/progress.ts';
 import type { Check } from '../../doctor.ts';
+import { checkTimelineDedupIndex } from '../../../core/timeline-dedup-repair.ts';
 
 /**
  * Doctor check: takes.weight grid integrity (v0.32 — EXP-2).
@@ -186,6 +187,40 @@ export async function pagesUpsertArbiterCheck(engine: BrainEngine): Promise<Chec
     };
   } catch {
     return { name: 'pages_upsert_arbiter', status: 'warn', message: 'Could not check the pages upsert arbiter' };
+  }
+}
+
+/**
+ * Doctor check: idx_timeline_dedup matches the insert-site ON CONFLICT tuple.
+ *
+ * Version-ledger-blind: a merge-renumbered migration can stamp config.version
+ * past the index change while the live index stays 3-column or raw-summary,
+ * and every addTimelineEntry then fails with "no unique or exclusion
+ * constraint". Local `gbrain doctor` and remote doctor share this helper so
+ * the two surfaces cannot drift.
+ */
+export async function timelineDedupIndexCheck(engine: BrainEngine): Promise<Check> {
+  try {
+    const idx = await checkTimelineDedupIndex(engine);
+    if (!idx.tablePresent || !idx.needsRepair) {
+      return {
+        name: 'timeline_dedup_index',
+        status: 'ok',
+        message: idx.tablePresent
+          ? 'idx_timeline_dedup has the md5-keyed 4-column shape'
+          : 'no timeline_entries table yet',
+      };
+    }
+    return {
+      name: 'timeline_dedup_index',
+      status: 'fail',
+      message:
+        `idx_timeline_dedup is ${idx.indexPresent ? `(${idx.columns.join(', ')})` : 'absent'}, ` +
+        `expected (page_id, date, md5(summary), source) — timeline writes are failing (#2038/#3737). ` +
+        `Run \`gbrain apply-migrations --yes\` (or \`--force-schema\`) to heal it.`,
+    };
+  } catch {
+    return { name: 'timeline_dedup_index', status: 'warn', message: 'Could not check idx_timeline_dedup shape' };
   }
 }
 

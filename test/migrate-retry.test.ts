@@ -10,6 +10,7 @@
  *   4. 40P01 twice + hasPending stays true past deadline → status: 'persistent'
  *   5. non-40P01 error propagates as status: 'error'
  *   6. not_needed early-exit when hasPending returns false up front
+ *      (still runs schema self-heals — #2038 boot gap)
  *   7. 250ms poll interval honored (custom interval respected)
  *   8. isDeadlockError matches SQLSTATE 40P01 in code field
  *   9. isDeadlockError matches "deadlock detected" in message text
@@ -125,13 +126,16 @@ describe('runInitSchemaWithRetry', () => {
 
 describe('tryRunPendingMigrations', () => {
   test('returns not_needed when hasPending returns false up front', async () => {
+    let healed = 0;
     const result = await tryRunPendingMigrations(fakeEngine, {
       _hooks: {
         hasPending: async () => false,
         initSchema: async () => { throw new Error('should not be called'); },
+        selfHeal: async () => { healed++; },
       },
     });
     expect(result.status).toBe('not_needed');
+    expect(healed).toBe(1);
   });
 
   test('returns ok when first initSchema succeeds', async () => {

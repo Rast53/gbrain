@@ -66,6 +66,7 @@ export {
   whoknowsHealthCheck,
   pgvectorCheck,
   pagesUpsertArbiterCheck,
+  timelineDedupIndexCheck,
   jsonbIntegrityCheck,
   checkVolunteerChannels,
   takesWeightGridCheck,
@@ -163,6 +164,7 @@ import {
   whoknowsHealthCheck,
   pgvectorCheck,
   pagesUpsertArbiterCheck,
+  timelineDedupIndexCheck,
   jsonbIntegrityCheck,
   checkVolunteerChannels,
   takesWeightGridCheck,
@@ -1920,6 +1922,12 @@ export async function buildChecks(
   // page write fails brain-wide and the version counter can't see the drift.
   progress.heartbeat('pages_upsert_arbiter');
   checks.push(await pagesUpsertArbiterCheck(engine));
+
+  // 4a-ter. #2038/#3737: idx_timeline_dedup shape. Same drift class as 4a-bis
+  // — the version counter can be current while the live index is still the
+  // pre-md5 3-column or raw-summary form, and every timeline ON CONFLICT fails.
+  progress.heartbeat('timeline_dedup_index');
+  checks.push(await timelineDedupIndexCheck(engine));
 
   // 4b. pglite_scale — engine-fit signal: makes the init-time 1000-file
   // Supabase suggestion re-evaluable for the life of the brain.
