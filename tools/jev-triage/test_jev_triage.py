@@ -299,9 +299,9 @@ class SecretsTest(unittest.TestCase):
         env = {"PATH": os.environ.get("PATH", ""), "PYTHONPATH": HERE}
         env.pop("OPENROUTER_API_KEY", None)
         env.pop("GBRAIN_DATABASE_URL", None)
-        proc = subprocess.run(
-            [sys.executable, jt.__file__, "--mode", "pairs", "--json"],
-            capture_output=True, text=True, env=env, cwd=HERE)
+        argv = [sys.executable, jt.__file__, "--mode", "pairs", "--json"]
+        proc = subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit -- fixed argv list, shell=False
+            argv, capture_output=True, text=True, env=env, cwd=HERE)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         payload = json.loads(proc.stdout)
         self.assertTrue(payload["skipped"])
@@ -311,9 +311,9 @@ class SecretsTest(unittest.TestCase):
         env = {"PATH": os.environ.get("PATH", ""), "PYTHONPATH": HERE,
                "OPENROUTER_API_KEY": "test-key-not-real"}
         env.pop("GBRAIN_DATABASE_URL", None)
-        proc = subprocess.run(
-            [sys.executable, jt.__file__, "--mode", "prune", "--json"],
-            capture_output=True, text=True, env=env, cwd=HERE)
+        argv = [sys.executable, jt.__file__, "--mode", "prune", "--json"]
+        proc = subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit -- fixed argv list, shell=False
+            argv, capture_output=True, text=True, env=env, cwd=HERE)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         payload = json.loads(proc.stdout)
         self.assertEqual(payload["reason"], "no-database")

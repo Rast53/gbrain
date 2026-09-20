@@ -261,6 +261,7 @@ def run_psql(url: str, sql: str, extra_args=None, psql_bin: str | None = None):
         cmd += list(extra_args)
     cmd += ["-c", sql]
     try:
+        # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit -- psql_bin is a fixed filesystem path and cmd is an argv LIST built from a constant SQL string plus an ISO timestamp; shell=False by default, no shell interpolation
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
     except Exception as exc:  # pragma: no cover - defensive
         return None, "psql-exec-%s" % type(exc).__name__
