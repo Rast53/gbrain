@@ -1,0 +1,97 @@
+{
+  "schema": "evidence.v1",
+  "sha": "4504cfd730f44672e16fe0b65e6522afe250549b",
+  "items": [
+    {
+      "id": "1",
+      "type": "test",
+      "result": "pass",
+      "checked_with": "python3 tools/jev-triage/jev_triage.py --mode pairs --replay --results /opt/hermes/work/typesafe-pilot/results_pairs.jsonl --jobs /opt/hermes/work/typesafe-pilot/jobs_pairs.jsonl --labels /opt/hermes/work/typesafe-pilot/labels_pairs.json --json --out /tmp/jev-report; env -u OPENROUTER_API_KEY -u GBRAIN_DATABASE_URL python3 tools/jev-triage/jev_triage.py --mode pairs --json",
+      "proof": "Replay exit 0 produced jev_triage_pairs.json (35KB) + jev_triage_pairs.md (11KB) with counts {merge:1, keep:15, review:1}, ranked blocks (ranks 1..n, confidence-sorted) and per-record reasons/flags/signals. Plain run without key printed {\"skipped\": true, \"reason\": \"no-openrouter-key\"} and exited 0.",
+      "paths": [
+        "tools/jev-triage/jev_triage.py",
+        "tools/jev-triage/README.md"
+      ]
+    },
+    {
+      "id": "2",
+      "type": "test",
+      "result": "pass",
+      "checked_with": "python3 -m unittest discover -s tools/jev-triage -p 'test_*.py' -v; pilot replay label_check",
+      "proof": "Ran 30 tests, OK (0 failures). Pilot label_check: compared 17, same_match 16 (0.941), action_match 15 (0.882), mismatches 2 (mattermost removed-contour -> merge, energy-reglaments project-vs-repo -> review). Synthetic: identical text -> merge; repos/projects example-app -> keep; cross-layer readme -> keep.",
+      "paths": [
+        "tools/jev-triage/test_jev_triage.py",
+        "tools/jev-triage/fixtures/replay_pairs/jobs.jsonl",
+        "tools/jev-triage/fixtures/replay_pairs/labels.json"
+      ]
+    },
+    {
+      "id": "3",
+      "type": "test",
+      "result": "pass",
+      "checked_with": "python3 tools/jev-triage/jev_triage.py --mode prune --replay --results /opt/hermes/work/typesafe-pilot/results_pages.jsonl --jobs /opt/hermes/work/typesafe-pilot/jobs_pages.jsonl --labels /opt/hermes/work/typesafe-pilot/labels_pages.json --json; PruneExclusionTest",
+      "proof": "Prune replay: label_check compared 56, prune_match 56, prune_accuracy 1.0, 0 mismatches. No code-index id in prune signals; excluded reasons only page_kind=code and source=rahermes; real probes included (page::test/write-path-extract-probe|raclaw-canonical, page::test/upgrade-050-probe|raclaw-canonical).",
+      "paths": [
+        "tools/jev-triage/jev_triage.py",
+        "tools/jev-triage/test_jev_triage.py"
+      ]
+    },
+    {
+      "id": "4",
+      "type": "test",
+      "result": "pass",
+      "checked_with": "SqlGuardTest (+ test_no_forbidden_sql_keywords, test_module_never_imports_a_write_capable_engine); code inspection of SQL_* literals and run_psql call sites",
+      "proof": "SqlGuardTest passes: every SQL_* literal starts with SELECT and no DML/DDL keyword appears; only subprocess call is psql with a fixed argv list; SQL_VERIFY_UNCHANGED is the required snapshot query. Live DB snapshot (changed pages = 0) is not runnable in this runner (psql absent, no GBRAIN_DATABASE_URL) and is performed by the operator on tw per AC1.",
+      "paths": [
+        "tools/jev-triage/jev_triage.py",
+        "tools/jev-triage/test_jev_triage.py"
+      ]
+    },
+    {
+      "id": "5",
+      "type": "diff",
+      "result": "pass",
+      "checked_with": "git diff master HEAD -- tools/jev-triage | grep key patterns; 50-char window scan of added diff vs pilot jobs; SecretsTest; bash scripts/check-privacy.sh; bash scripts/check-trailing-newline.sh",
+      "proof": "No sk-or-/Bearer sk- literals in the added diff; fixtures use only example-* synthetic text; a 50-char window scan of all pilot pair/page bodies found 0 real page-text overlaps in the diff; test_no_api_key_literal_in_source and test_fixtures_contain_only_synthetic_text pass; check-privacy.sh and check-trailing-newline.sh exit 0.",
+      "paths": [
+        "tools/jev-triage/jev_triage.py",
+        "tools/jev-triage/test_jev_triage.py",
+        "tools/jev-triage/fixtures/replay_pairs/jobs.jsonl",
+        "tools/jev-triage/fixtures/replay_prune/jobs.jsonl"
+      ]
+    },
+    {
+      "id": "6",
+      "type": "test",
+      "result": "pass",
+      "checked_with": "SecretsTest.test_missing_key_is_skip_exit_zero, SecretsTest.test_missing_database_is_skip_exit_zero, JevMockTest.test_http_500_is_reported_not_raised; direct CLI runs and run_pairs_live with 503 opener",
+      "proof": "Unset OPENROUTER_API_KEY -> skip 'no-openrouter-key' exit 0; set key but no GBRAIN_DATABASE_URL -> skip 'no-database' exit 0; call_jev on HTTP 500/503 returns {ok:false, http:503} instead of raising, and run_pairs_live records a 'jev-unavailable' skip note and returns normally.",
+      "paths": [
+        "tools/jev-triage/test_jev_triage.py",
+        "tools/jev-triage/jev_triage.py"
+      ]
+    },
+    {
+      "id": "7",
+      "type": "test",
+      "result": "pass",
+      "checked_with": "BudgetTest.test_full_run_estimate_is_under_budget; jev_triage.estimate_report(560)/estimate_report(500); main() estimate-to-stderr ordering",
+      "proof": "estimate_report(560) -> usd 0.0448, under_budget true; estimate_report(500) -> usd 0.04; BudgetTest passes. main() prints the estimate to stderr before the Jev loop and aborts with an estimate-over-budget skip unless --allow-over-budget.",
+      "paths": [
+        "tools/jev-triage/jev_triage.py",
+        "tools/jev-triage/test_jev_triage.py"
+      ]
+    },
+    {
+      "id": "8",
+      "type": "test",
+      "result": "pass",
+      "checked_with": "DecisionTest.test_weak_signal_goes_to_review and test_ru_en_divergence_goes_to_review; rendered synthetic and pilot Markdown reports",
+      "proof": "Weak noul values inside [0.35,0.65] and RU/EN divergence flags force decision=review with flags weak-signal / ru-en-same-divergence / ru-en-action-divergence; the review block lists them and render_markdown emits a dedicated 'weak signals & RU/EN divergences' section. Synthetic MD shows both review records under '## review'.",
+      "paths": [
+        "tools/jev-triage/jev_triage.py",
+        "tools/jev-triage/test_jev_triage.py"
+      ]
+    }
+  ]
+}
