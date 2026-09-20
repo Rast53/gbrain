@@ -1,0 +1,32 @@
+{
+  "verdict": "PASS",
+  "sha": "4504cfd730f44672e16fe0b65e6522afe250549b",
+  "reasons": [
+    "Head SHA confirmed: local HEAD, remote dsh/TASK-gbrain-jev-triage, and PR #14 head all equal 4504cfd730f44672e16fe0b65e6522afe250549b; diff vs master is exactly 10 files, all under tools/jev-triage/ (no application code touched).",
+    "AC1 PASS: replay on the pilot answers produces a ranked JSON+MD report with merge/keep/review blocks, per-decision reasons/flags/signals, ranks and confidences (--out writes jev_triage_pairs.json/.md); without DB/key the plain run emits a skip note and exits 0, which is the documented runner behavior; live tw run is explicitly operator-scoped.",
+    "AC2 PASS: 30/30 offline unittests pass; pilot pairs replay cross-checks labels_pairs.json with same 16/17 (0.941) and action 15/17 (0.882), 2 pilot mismatches surfaced in label_check.mismatches; synthetic cases show identical text -> merge (no Jev call), same-name repo/service/project facets -> keep, cross-layer readme -> keep.",
+    "AC3 PASS: prune replay against the pilot pages gives prune_accuracy 56/56 (1.0); page_kind=code code-index pages are hard-excluded from prune signals, and real probes / empty templates are emitted as prune signals.",
+    "AC4 PASS (runner scope): all SQL_* literals are SELECT-only and SqlGuardTest passes; the tool contains the required read-only snapshot query SELECT count(*) FILTER (WHERE updated_at > :'since'::timestamptz) FROM pages; the live snapshot itself cannot run in this runner (no psql/DB) and belongs to the operator's tw run.",
+    "AC5 PASS: no API-key literals in the diff; committed fixtures are synthetic (example-*), test_no_api_key_literal_in_source passes, and a 50-char window scan found 0 real gbrain page-body text substrings in the added diff; scripts/check-privacy.sh and scripts/check-trailing-newline.sh pass. Minor residual: a few real pilot slugs (e.g. nginx-london, vpn-dashboard, raclaw-*) appear as assertion identifiers in test_jev_triage.py, but no page text leaks.",
+    "AC6 PASS: missing OPENROUTER_API_KEY and missing GBRAIN_DATABASE_URL both produce skip notes with exit 0 (verified via CLI and tests); HTTP 5xx is caught by call_jev and turned into a jev-unavailable skip note without raising.",
+    "AC7 PASS: estimate_report is printed to stderr before any Jev call; 560 calls * $0.00008 = $0.0448 and 500 calls = $0.04, both under the $0.05 budget; BudgetTest passes.",
+    "AC8 PASS: weak-signal (0.35-0.65) and RU/EN divergence answers are routed to the review decision with weak-signal / ru-en-*-divergence flags and a dedicated report section; DecisionTest covers both and rendered synthetic/pilot MD shows the review block."
+  ],
+  "model": "deepseek/deepseek-v4.1-flash",
+  "tokens_in": 70166,
+  "tokens_out": 24914,
+  "cache_read": 1927552,
+  "cost_usd": 0.031256,
+  "peak": false,
+  "usage_source": "session_v3",
+  "usage": {
+    "model": "deepseek/deepseek-v4.1-flash",
+    "tokens_in": 70166,
+    "tokens_out": 24914,
+    "cache_read": 1927552,
+    "cost_usd": 0.031256,
+    "peak": false,
+    "usage_source": "session_v3",
+    "usage_missing": false
+  }
+}
