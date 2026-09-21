@@ -233,6 +233,9 @@ describe('dispatchPerSource — integration with stubbed engine + queue', () => 
         if (opts?.listThrows) throw new Error('sources table missing');
         return sources;
       },
+      // isManagedBrain reads persistence_brain.enabled; these fixtures are
+      // unmanaged, so pull still follows the source-config decision.
+      executeRaw: async (sql: string) => (sql.includes('persistence_brain') ? [{ enabled: false }] : []),
     } as unknown as BrainEngine;
     const queue = {
       add: async (name: string, data: unknown, addOpts: Record<string, unknown>) => {
