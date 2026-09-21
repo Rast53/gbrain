@@ -1,0 +1,17 @@
+{
+ "index/example-module|example-task-mcp": {
+  "prunable": false
+ },
+ "test/example-probe|example-canonical": {
+  "prunable": true
+ },
+ "docs/tasks/example-empty/plan|example-task-mcp": {
+  "prunable": true
+ },
+ "services/example-live|example-canonical": {
+  "prunable": false
+ },
+ "memory/example-floor|example-agent-floor": {
+  "prunable": false
+ }
+}
