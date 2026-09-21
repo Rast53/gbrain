@@ -1,0 +1,27 @@
+{
+ "pair::services/example-dup-a|services/example-dup-b": {
+  "same": true,
+  "action": "merge",
+  "note": "identical text"
+ },
+ "pair::repos/example-app|projects/example-app": {
+  "same": false,
+  "action": "keep",
+  "note": "facet repo vs project"
+ },
+ "pair::readme|example-layer-a|example-layer-b": {
+  "same": false,
+  "action": "keep",
+  "note": "cross-layer readme"
+ },
+ "pair::services/example-old|services/example-new": {
+  "same": false,
+  "action": "keep",
+  "note": "weak signal -> review"
+ },
+ "pair::projects/example-split|repos/example-split": {
+  "same": false,
+  "action": "keep",
+  "note": "ru/en divergence"
+ }
+}
