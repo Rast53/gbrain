@@ -12,6 +12,23 @@ export async function isManagedBrain(engine: SqlEngine): Promise<boolean> {
 }
 
 /**
+ * Resolve the `pull` flag for an AUTOMATIC maintenance sync on this brain.
+ *
+ * A managed brain routes sync through the persistence coordinator, which
+ * refuses `git pull` outside an explicit drained maintenance window
+ * (`Managed sync requires --no-pull`, `src/core/persistence/sync-discovery.ts`).
+ * Asking for a pull there fails the cycle's sync phase with
+ * `writer_coordinator_required`, so every autopilot pull decision (freshness
+ * dispatch, per-source fan-out, inline cycle) routes through this helper and
+ * resolves to no pull. Unmanaged brains keep the caller's `requested` decision
+ * (typically `sourceConfigHasRemoteUrl`). False is always false — no DB read.
+ */
+export async function autoSyncPullAllowed(engine: SqlEngine, requested: boolean): Promise<boolean> {
+  if (!requested) return false;
+  return !(await isManagedBrain(engine));
+}
+
+/**
  * #5175 #5180 #5203: a legacy maintenance writer on a managed brain reports the
  * phase as `skipped` (reason `writer_coordinator_required`) instead of failing
  * the lane. Returns null when the phase may run; callers pass their own summary.

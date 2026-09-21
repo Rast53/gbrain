@@ -47,6 +47,7 @@ import { inspectLock } from '../core/db-lock.ts';
 import { registerCleanup } from '../core/process-cleanup.ts';
 import { loadAllSources, sourceConfigHasRemoteUrl, sourceLocalPathSkipWarning, relativeSourceLocalPathSkipWarning } from '../core/sources-load.ts';
 import { isSyncDisabledConfig } from '../core/sync-policy.ts';
+import { autoSyncPullAllowed } from '../core/persistence/maintenance.ts';
 import { resolveAutopilotDispatchTimeoutMs } from './autopilot-timeout.ts';
 import {
   autopilotRemediationIdempotencyKey,
@@ -1113,7 +1114,9 @@ export async function runAutopilot(engine: BrainEngine, args: string[]) {
                   {
                     sourceId: src.id,
                     repoPath: src.local_path,
-                    pull: sourceConfigHasRemoteUrl(src.config),
+                    // Managed brains refuse `git pull` (writer_coordinator_required);
+                    // the shared helper resolves that to no pull.
+                    pull: await autoSyncPullAllowed(engine, sourceConfigHasRemoteUrl(src.config)),
                     auto_embed_backfill: true,
                     embed_reason: 'autopilot_freshness',
                   },
@@ -1490,7 +1493,9 @@ export async function runAutopilot(engine: BrainEngine, args: string[]) {
           // Autopilot daemon path: pulls by default (matches
           // pre-v0.17 autopilot behavior). CLI dream defaults false
           // for cron safety; that choice is scoped to dream only.
-          pull: true,
+          // Managed brains never pull — the persistence coordinator refuses
+          // it, so the shared helper resolves this to false there.
+          pull: await autoSyncPullAllowed(engine, true),
           signal: shutdownAbort.signal,
           yieldBetweenPhases: async () => {
             await new Promise(r => setImmediate(r));
