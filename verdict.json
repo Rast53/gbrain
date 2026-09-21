@@ -1,0 +1,29 @@
+{
+  "verdict": "PASS",
+  "sha": "71b952eb2945b7d53ccfa625aa74b5fbf6c3fd37",
+  "reasons": [
+    "AC1 PASS: managed case carries no pull. test/autopilot-managed-pull.test.ts (stub executeRaw drives real isManagedBrain) asserts the autopilot-cycle job data.pull===false for a managed brain; test/cycle-managed-sync-pull.serial.test.ts (PGLite persistence_brain.enabled=true) asserts performSync receives noPull===true. Both are RED on master c4f60aa in a clean worktree (Expected false/true Received true/false) and GREEN on HEAD 71b952eb.",
+    "AC2 PASS: `grep -n \"pull\" src/commands/autopilot.ts` shows exactly two pull call sites — line 1119 `pull: await autoSyncPullAllowed(engine, sourceConfigHasRemoteUrl(src.config))` and line 1498 `pull: await autoSyncPullAllowed(engine, true)` — both routed through the shared managed-aware helper; `pull: true` appears nowhere in autopilot.ts/autopilot-fanout.ts/cycle.ts.",
+    "AC3 PASS: the unmanaged negative is a distinct assert ('unmanaged brain: remote-url source keeps pull=true (sourceConfigHasRemoteUrl)'). Broad regression `bun test test/autopilot-*.test.ts test/cycle-*.test.ts`: HEAD 773 pass / 26 fail, master 766 pass / 26 fail, failure-name sets byte-identical (comm empty) — zero new failures. check:test-isolation OK (1837 non-serial files) after the rename to *.serial.test.ts; check:module-size has only the two pre-existing master offenders; typecheck exit 0.",
+    "AC4 PASS: the managed phase test asserts sync.status==='ok', sync.error undefined, report.status!=='failed', details.pullSkipped===true, details.pullSkippedReason==='managed_brain', and summary containing 'git pull skipped (managed brain)' — phase does not crash and discloses the skipped pull.",
+    "Round-2 gates PASS: Б1 serial quarantine verified (run-unit-parallel.sh:820 and run-serial-tests.sh glob *.serial.test.ts); Б2 ceilings raised in the same commit exactly to actual counts (autopilot.ts 2676, cycle.ts 3223) while worker.ts 1566>1546 and config.ts 1795>1794 are unchanged pre-existing; Б4 targeted command 66 pass / 0 fail; progress.md updated to the renamed file and records Round 2.",
+    "Head SHA confirmed on origin refs/heads/dsh/TASK-gbrain-autopilot-managed-pull = 71b952eb2945b7d53ccfa625aa74b5fbf6c3fd37; working tree clean and HEAD unchanged after verification."
+  ],
+  "model": "deepseek/deepseek-v4.1-flash",
+  "tokens_in": 64507,
+  "tokens_out": 23243,
+  "cache_read": 2709120,
+  "cost_usd": 0.063498,
+  "peak": true,
+  "usage_source": "session_v3",
+  "usage": {
+    "model": "deepseek/deepseek-v4.1-flash",
+    "tokens_in": 64507,
+    "tokens_out": 23243,
+    "cache_read": 2709120,
+    "cost_usd": 0.063498,
+    "peak": true,
+    "usage_source": "session_v3",
+    "usage_missing": false
+  }
+}
