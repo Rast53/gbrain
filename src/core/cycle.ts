@@ -54,6 +54,7 @@ import { timeContainedPhase } from './cycle/phase-containment.ts';
 import { isManagedBrain } from './cycle/phase-table.ts';
 import { managedPullWarning, type UpstreamRefresh } from './sync-upstream.ts';
 import { assertValidSourceId } from './source-id.ts';
+import { managedPersistenceEnabled } from './persistence/ownership.ts';
 import { PHASE_SCOPE, SOURCE_FRESHNESS_PHASES, type PhaseScope } from './cycle/phase-scope.ts';
 import { assertEmbedNotStalled } from './embed-stall.ts';
 import { anyAbortSignal } from './abort-signals.ts';
@@ -1220,6 +1221,14 @@ async function runPhaseSync(
 ): Promise<SyncPhaseResult> {
   try {
     const { performSync } = await import('../commands/sync.ts');
+    // Managed brains route sync through the persistence coordinator, which
+    // refuses a git pull outside an explicit drained maintenance window
+    // (`Managed sync requires --no-pull`, sync-discovery.ts). Force it off so
+    // the automatic cycle's sync phase can't fail with
+    // `writer_coordinator_required`, and record why the pull was skipped.
+    // Unmanaged brains — and dry runs, which never pull — are unchanged.
+    const pullSkippedForManagedBrain = pull && !dryRun && await managedPersistenceEnabled(engine);
+    const managedPullNote = pullSkippedForManagedBrain ? '; git pull skipped (managed brain)' : '';
     // Resolve the per-source id so sync reads source-scoped last_commit
     // instead of the global config key. The global key can drift out of
     // git history (force push, GC) causing a full reimport of all files.
@@ -1260,11 +1269,11 @@ async function runPhaseSync(
       phase: 'sync',
       status: result.status === 'blocked_by_failures' || pullFailedPartial || uncommittedTotal > 0 || warning ? 'warn' : 'ok',
       duration_ms: 0,
-      summary: dryRun
+      summary: (dryRun
         ? `${syncedCount} page(s) would sync, ${result.deleted} would delete`
         : pullFailedPartial
           ? `git pull failed, nothing imported — source may be behind its remote (sync anchor unchanged)`
-          : `+${result.added} added, ~${result.modified} modified, -${result.deleted} deleted${uncommittedNote}${upstreamNote}`,
+          : `+${result.added} added, ~${result.modified} modified, -${result.deleted} deleted${uncommittedNote}${upstreamNote}`) + (warning ? '' : managedPullNote),
       details: {
         source_id: sourceId ?? 'default', upstream_refresh: upstreamRefresh, ...(warning ? { warning } : {}),
         added: result.added,
@@ -1276,6 +1285,7 @@ async function runPhaseSync(
         syncStatus: result.status,
         ...(result.reason ? { syncReason: result.reason } : {}),
         ...(result.uncommitted ? { uncommitted: result.uncommitted } : {}),
+        ...(pullSkippedForManagedBrain ? { pullSkipped: true, pullSkippedReason: 'managed_brain' } : {}),
         dryRun,
       },
       pagesAffected: result.pagesAffected,
