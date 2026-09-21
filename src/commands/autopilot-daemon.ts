@@ -4,6 +4,7 @@
  * install/uninstall/status/pause mode flag is present.
  */
 import type { BrainEngine } from '../core/engine.ts';
+import { autoSyncPullAllowed } from '../core/persistence/maintenance.ts';
 import { ChildWorkerSupervisor } from '../core/minions/child-worker-supervisor.ts';
 import { MIGRATE_PAUSE_MARKER_PREFIX, autopilotLockPath, autopilotPaused, autopilotPausedMarkerPath, markerHolderAlive } from '../core/autopilot-paths.ts';
 import { OwnerProcessingState } from '../core/minions/processing-state.ts';
@@ -619,7 +620,9 @@ async function runInlineCycle(
         // Autopilot daemon path: pulls by default (matches
         // pre-v0.17 autopilot behavior). CLI dream defaults false
         // for cron safety; that choice is scoped to dream only.
-        pull: true,
+        // Managed brains never pull — the persistence coordinator refuses
+        // it, so the shared helper resolves this to false there.
+        pull: await autoSyncPullAllowed(engine, true),
         signal: shutdownAbort.signal,
         yieldBetweenPhases: async () => {
           await new Promise(r => setImmediate(r));

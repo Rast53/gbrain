@@ -10,8 +10,10 @@
  *   - P0-5: each per-source cycle writes `last_full_cycle_at` in its
  *     `sources.config` JSONB on success (handled in `runCycle` exit hook,
  *     not here — this module just READS it for freshness gating).
- *   - P1-2: explicitly threads `pull: !!source.config.remote_url` so
- *     local-only sources don't try to git-pull.
+ *   - P1-2: explicitly threads a per-source pull decision so local-only
+ *     sources don't try to git-pull, and managed brains (where the
+ *     persistence coordinator refuses a pull) resolve to no pull via
+ *     `autoSyncPullAllowed`.
  *   - P1-3: PGLite engines default `fanoutMax=1` (PGLite is single-writer;
  *     parallel fan-out would queue uselessly behind the file lock).
  *   - P1-4: enumeration filters `local_path IS NOT NULL` so pure-DB
@@ -39,6 +41,7 @@ import { SOURCE_FRESHNESS_PHASES, MAINTENANCE_PHASES, LAST_GLOBAL_AT_KEY } from 
 import { sourceConfigHasRemoteUrl, sourceLocalPathSkipWarning } from '../core/sources-load.ts';
 import { isSyncDisabledConfig } from '../core/sync-policy.ts';
 import { loadActivationPendingSourceIds, skipActivationPendingSync } from '../core/sync-policy.ts';
+import { autoSyncPullAllowed } from '../core/persistence/maintenance.ts';
 import { AUTOPILOT_FULL_CYCLE_FLOOR_MINUTES } from './autopilot-remediation-policy.ts';
 
 // #2194 fix #2: failure cooldown. A source whose autopilot-cycle keeps
@@ -520,7 +523,13 @@ export async function dispatchPerSource(
         activationPending, src.id, 'fanout_sync_skipped', opts.jsonMode === true, opts.jsonMode ? emit : log,
       );
       const syncDisabled = isSyncDisabledConfig(src.config) || pendingActivation;
-      const shouldPull = sourceConfigHasRemoteUrl(src.config) && !syncDisabled;
+      // Managed brains never pull: the persistence coordinator refuses
+      // `git pull` outside an explicit drained maintenance window, which
+      // would fail this cycle's sync phase with `writer_coordinator_required`.
+      const shouldPull = await autoSyncPullAllowed(
+        engine,
+        sourceConfigHasRemoteUrl(src.config) && !syncDisabled,
+      );
       const job = await queue.add(
         'autopilot-cycle',
         {

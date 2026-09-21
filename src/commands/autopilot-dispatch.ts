@@ -5,6 +5,7 @@
  * submits. Called by runAutopilotDaemon (src/commands/autopilot-daemon.ts).
  */
 import type { BrainEngine } from '../core/engine.ts';
+import { autoSyncPullAllowed } from '../core/persistence/maintenance.ts';
 import type { MinionQueue } from '../core/minions/queue.ts';
 import { loadAllSources, sourceConfigHasRemoteUrl, sourceLocalPathSkipWarning } from '../core/sources-load.ts';
 import { isSyncDisabledConfig } from '../core/sync-policy.ts';
@@ -267,7 +268,9 @@ async function dispatchFreshnessSyncs(
             {
               sourceId: src.id,
               repoPath: src.local_path,
-              pull: sourceConfigHasRemoteUrl(src.config),
+              // Managed brains refuse `git pull` (writer_coordinator_required);
+              // the shared helper resolves that to no pull.
+              pull: await autoSyncPullAllowed(engine, sourceConfigHasRemoteUrl(src.config)),
               auto_embed_backfill: true,
               embed_reason: 'autopilot_freshness',
             },
