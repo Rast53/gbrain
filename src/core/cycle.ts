@@ -51,6 +51,7 @@ import { createProgress, type ProgressReporter } from './progress.ts';
 import { getCliOptions, cliOptsToProgressOptions } from './cli-options.ts';
 import { tryAcquireDbLock, reapDeadHolderLocks, LockStolenError, type DbLockHandle } from './db-lock.ts';
 import { assertValidSourceId } from './source-id.ts';
+import { managedPersistenceEnabled } from './persistence/ownership.ts';
 import { PHASE_SCOPE, SOURCE_FRESHNESS_PHASES, type PhaseScope } from './cycle/phase-scope.ts';
 import { assertEmbedNotStalled } from './embed-stall.ts';
 
@@ -1261,6 +1262,15 @@ async function runPhaseSync(
 ): Promise<SyncPhaseResult> {
   try {
     const { performSync } = await import('../commands/sync.ts');
+    // Managed brains route sync through the persistence coordinator, which
+    // refuses a git pull outside an explicit drained maintenance window
+    // (`Managed sync requires --no-pull`, sync-discovery.ts). Force it off so
+    // the automatic cycle's sync phase can't fail with
+    // `writer_coordinator_required`, and record why the pull was skipped.
+    // Unmanaged brains — and dry runs, which never pull — are unchanged.
+    const pullSkippedForManagedBrain = pull && !dryRun && await managedPersistenceEnabled(engine);
+    const effectivePull = pull && !pullSkippedForManagedBrain;
+    const managedPullNote = pullSkippedForManagedBrain ? '; git pull skipped (managed brain)' : '';
     // Resolve the per-source id so sync reads source-scoped last_commit
     // instead of the global config key. The global key can drift out of
     // git history (force push, GC) causing a full reimport of all files.
@@ -1269,7 +1279,7 @@ async function runPhaseSync(
       repoPath: brainDir,
       sourceId,
       dryRun,
-      noPull: !pull,
+      noPull: !effectivePull,
       noEmbed: true,                       // embed is a separate phase
       noExtract: willRunExtractPhase,      // dedupe ONLY when cycle's extract phase will also run.
                                            // If extract isn't scheduled (e.g. `gbrain dream --phase sync`),
@@ -1295,11 +1305,11 @@ async function runPhaseSync(
       phase: 'sync',
       status: result.status === 'blocked_by_failures' || pullFailedPartial || uncommittedTotal > 0 ? 'warn' : 'ok',
       duration_ms: 0,
-      summary: dryRun
+      summary: (dryRun
         ? `${syncedCount} page(s) would sync, ${result.deleted} would delete`
         : pullFailedPartial
           ? `git pull failed, nothing imported — source may be behind its remote (sync anchor unchanged)`
-          : `+${result.added} added, ~${result.modified} modified, -${result.deleted} deleted${uncommittedNote}`,
+          : `+${result.added} added, ~${result.modified} modified, -${result.deleted} deleted${uncommittedNote}`) + managedPullNote,
       details: {
         added: result.added,
         modified: result.modified,
@@ -1310,6 +1320,7 @@ async function runPhaseSync(
         syncStatus: result.status,
         ...(result.reason ? { syncReason: result.reason } : {}),
         ...(result.uncommitted ? { uncommitted: result.uncommitted } : {}),
+        ...(pullSkippedForManagedBrain ? { pullSkipped: true, pullSkippedReason: 'managed_brain' } : {}),
         dryRun,
       },
       pagesAffected: result.pagesAffected,

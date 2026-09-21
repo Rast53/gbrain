@@ -4,8 +4,27 @@ import { acquireLock, releaseLock } from '../pglite-lock.ts';
 import { assertManagedFilesystemWrite } from './filesystem-guard.ts';
 import { OperationError } from '../ops/contract.ts';
 import type { SqlEngine } from './model.ts';
+import { managedPersistenceEnabled } from './ownership.ts';
 
 export const UNSUPPORTED_MANAGED_BULK_WRITERS = ['cycle.extract_facts', 'extract-conversation-facts', 'conversation_facts_backfill', 'loops_extract'] as const;
+
+/**
+ * Resolve the `pull` flag for an AUTOMATIC maintenance sync on this brain.
+ *
+ * A managed brain routes sync through the persistence coordinator, which
+ * refuses `git pull` outside an explicit drained maintenance window
+ * (`Managed sync requires --no-pull`, `src/core/persistence/sync-discovery.ts`).
+ * Asking for a pull there fails the cycle's sync phase with
+ * `writer_coordinator_required`, so every autopilot pull decision (freshness
+ * dispatch, per-source fan-out, inline cycle) routes through this helper and
+ * resolves to no pull. Unmanaged brains keep the caller's `requested` decision
+ * (typically `sourceConfigHasRemoteUrl`). False is always false — no DB read.
+ */
+export async function autoSyncPullAllowed(engine: SqlEngine, requested: boolean): Promise<boolean> {
+  if (!requested) return false;
+  return !(await managedPersistenceEnabled(engine));
+}
+
 
 /** Refuse unsupported multi-stage writers before providers, files or git change. */
 export async function assertUnmanagedCanonicalWriter(engine: SqlEngine, operation: string): Promise<void> {

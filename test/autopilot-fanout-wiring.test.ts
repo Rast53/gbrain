@@ -112,11 +112,16 @@ describe('autopilot.ts ↔ dispatchPerSource wiring', () => {
     expect(AUTOPILOT_SRC).toMatch(/event: 'dispatch_coalesced',[\s\S]{0,80}mode: 'targeted'/);
   });
 
-  test('freshness sync dispatch uses the parsed source config for pull policy', () => {
+  test('freshness sync dispatch resolves pull through the managed-aware helper', () => {
     const freshnessIdx = AUTOPILOT_SRC.indexOf('idempotency_key: `autopilot-sync:');
     expect(freshnessIdx).toBeGreaterThan(-1);
     const freshnessBlock = AUTOPILOT_SRC.slice(Math.max(0, freshnessIdx - 700), freshnessIdx + 200);
-    expect(freshnessBlock).toContain('pull: sourceConfigHasRemoteUrl(src.config)');
+    // Unmanaged brains keep the parsed source-config decision, but the value
+    // must be routed through the shared helper so a managed brain never asks
+    // for a git pull (the persistence coordinator refuses it).
+    expect(freshnessBlock).toContain(
+      'pull: await autoSyncPullAllowed(engine, sourceConfigHasRemoteUrl(src.config))',
+    );
   });
 
   test('freshness sync dispatch skips unavailable source paths before enqueueing', () => {
