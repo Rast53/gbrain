@@ -1,0 +1,56 @@
+{
+  "schema": "evidence.v1",
+  "sha": "71b952eb2945b7d53ccfa625aa74b5fbf6c3fd37",
+  "items": [
+    {
+      "id": "1",
+      "type": "test",
+      "result": "pass",
+      "checked_with": "bun test test/autopilot-managed-pull.test.ts test/cycle-managed-sync-pull.serial.test.ts test/autopilot-fanout.test.ts test/autopilot-fanout-wiring.test.ts",
+      "proof": "HEAD 71b952eb: 66 pass / 0 fail / 190 expect(). Managed autopilot-cycle job asserts data.pull===false; cycle sync asserts performSync noPull===true and pullSkipped note. Red-before: running the same two new files against master worktree c4f60aa gave 5 pass / 2 fail — managed autopilot case Expected false Received true, managed cycle case Expected true Received false — while every unmanaged case passed. Tests added before behavior change and green after, as required.",
+      "paths": [
+        "test/autopilot-managed-pull.test.ts",
+        "test/cycle-managed-sync-pull.serial.test.ts",
+        "src/commands/autopilot.ts",
+        "src/commands/autopilot-fanout.ts",
+        "src/core/cycle.ts",
+        "src/core/persistence/maintenance.ts"
+      ]
+    },
+    {
+      "id": "2",
+      "type": "diff",
+      "result": "pass",
+      "checked_with": "grep -n \"pull\" src/commands/autopilot.ts && grep -rn \"pull: true\" src/commands/autopilot.ts src/commands/autopilot-fanout.ts src/core/cycle.ts",
+      "proof": "src/commands/autopilot.ts:1119 `pull: await autoSyncPullAllowed(engine, sourceConfigHasRemoteUrl(src.config))`; src/commands/autopilot.ts:1498 `pull: await autoSyncPullAllowed(engine, true)`. Both managed-aware through the shared helper (src/core/persistence/maintenance.ts:26-29: false is always false, else !isManagedBrain(engine)). The literal `pull: true` grep returns no matches in autopilot.ts/autopilot-fanout.ts/cycle.ts; fanout uses `pull: shouldPull` resolved via the helper, cycle uses `noPull: !effectivePull` where effectivePull is cleared for a managed brain.",
+      "paths": [
+        "src/commands/autopilot.ts"
+      ]
+    },
+    {
+      "id": "3",
+      "type": "test",
+      "result": "pass",
+      "checked_with": "bun test test/autopilot-*.test.ts test/cycle-*.test.ts (HEAD vs master); bash scripts/check-test-isolation.sh; bash scripts/check-module-size.sh; bun run typecheck",
+      "proof": "Unmanaged negative is a separate assert: test/autopilot-managed-pull.test.ts test 3 'unmanaged brain: remote-url source keeps pull=true (sourceConfigHasRemoteUrl)' plus test 4 local-only pull=false. Broad regression HEAD 773 pass/26 fail vs master 766 pass/26 fail; failure name sets identical (comm -23/-13 both empty) => only 26 pre-existing env failures (EACCES /opt/dsh-runner/.gbrain, loadAllowedSlugPrefixes, concurrency, etc.), zero new. check-test-isolation: `check-test-isolation: OK (1837 non-serial unit files scanned)`. check-module-size: only FAIL worker.ts 1566>1546 and config.ts 1795>1794 (identical counts on master), no FAIL for autopilot.ts (2676=ceiling) or cycle.ts (3223=ceiling). tsc --noEmit exit 0.",
+      "paths": [
+        "test/autopilot-managed-pull.test.ts",
+        "test/autopilot-fanout.test.ts",
+        "test/autopilot-fanout-wiring.test.ts",
+        "scripts/module-size-limits.tsv",
+        "docs/tasks/TASK-gbrain-autopilot-managed-pull/progress.md"
+      ]
+    },
+    {
+      "id": "4",
+      "type": "test",
+      "result": "pass",
+      "checked_with": "bun test test/cycle-managed-sync-pull.serial.test.ts",
+      "proof": "Managed-brain phase test (PGLite, persistence_brain.enabled=true) passes: assert sync.status==='ok', sync.error undefined, report.status!=='failed', performSync noPull===true, details.pullSkipped===true, details.pullSkippedReason==='managed_brain', summary contains 'git pull skipped (managed brain)'. The unmanaged sibling tests assert noPull===false and no skip note, and the default cron-safe test asserts noPull===true with no skip note. All 3 pass on HEAD; managed case fails on master (noPull false).",
+      "paths": [
+        "test/cycle-managed-sync-pull.serial.test.ts",
+        "src/core/cycle.ts"
+      ]
+    }
+  ]
+}
