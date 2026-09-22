@@ -1,0 +1,8 @@
+{
+ "adapter": "laya",
+ "checkpoint": "english",
+ "device": "cpu",
+ "dataset": "dataset.json",
+ "started_at": "2026-09-22T08:08:06Z",
+ "laya_version": "0.3.4"
+}
