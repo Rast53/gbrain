@@ -1,0 +1,41 @@
+{
+ "dataset": "LocalLLaMA/typed-decisions",
+ "config": "all",
+ "split": "test",
+ "fetched_at": "2026-09-22T00:00:00Z",
+ "rows": [
+  {
+   "id": "agent_trace_observability_900001",
+   "workflow": "agent_trace_observability",
+   "state": {"task": "Rotate the TLS certificate on staging.", "trace_summary": {"steps": 11, "tool_errors": 0}},
+   "questions": {
+    "action": {"type": "choice", "instructions": "What should the operator do?",
+               "criteria": {"continue": "let it run", "human_review": "queue for review", "stop": "halt now"}},
+    "needs_review": {"type": "noul", "instructions": "Does this trace need human review?"}
+   },
+   "gold": {
+    "action": {"type": "choice", "label": "continue", "confidence": 0.6,
+               "probabilities": {"continue": 0.6, "human_review": 0.3, "stop": 0.1}},
+    "needs_review": {"type": "noul", "label": "false", "noul": 0.25,
+                     "probabilities": {"true": 0.25, "false": 0.75}}
+   }
+  },
+  {
+   "id": "invoice_processing_900002",
+   "workflow": "invoice_processing",
+   "state": {"invoice": {"id": "INV-1", "total": 1200}, "order": {"id": "PO-9"}},
+   "questions": {
+    "disposition": {"type": "choice", "instructions": "Pay, hold or reject?",
+                    "criteria": {"pay": "matches", "hold": "needs check", "reject": "mismatch"}},
+    "urgency": {"type": "score", "instructions": "How urgent is this?",
+                "criteria": ["not urgent", "soon", "critical"]}
+   },
+   "gold": {
+    "disposition": {"type": "choice", "label": "hold", "confidence": 0.5,
+                    "probabilities": {"pay": 0.2, "hold": 0.5, "reject": 0.3}},
+    "urgency": {"type": "score", "label": "1", "score": 1.4,
+                "probabilities": {"0": 0.1, "1": 0.5, "2": 0.4}}
+   }
+  }
+ ]
+}

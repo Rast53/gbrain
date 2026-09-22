@@ -1,0 +1,29 @@
+{
+ "adapter": "jev",
+ "model": "typesafe/jev-1.13-20260917",
+ "endpoint": "https://openrouter.ai/api/alpha/decisions",
+ "dataset": "LocalLLaMA/typed-decisions",
+ "config": "all",
+ "split": "test",
+ "fingerprint": "db479b4904cd05ee",
+ "started_at": "2026-09-22T07:34:12Z",
+ "args": {
+  "mode": "run-jev",
+  "data": "/opt/hermes/work/gbrain-decision-stand/tools/decision-stand/data/dataset.json",
+  "out": "tools/decision-stand/out/results_jev.jsonl",
+  "results": null,
+  "limit": null,
+  "model": "typesafe/jev-1.13-20260917",
+  "max_usd": 0.5,
+  "retries": 4,
+  "sleep": 0.0,
+  "env_file": "/opt/hermes/work/typesafe-pilot/.or_env"
+ },
+ "summary": {
+  "rows": 400,
+  "pending": 400,
+  "failed": 0,
+  "spent_usd": 0.01587,
+  "finished_at": "2026-09-22T07:40:02Z"
+ }
+}
