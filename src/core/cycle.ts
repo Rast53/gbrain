@@ -1456,6 +1456,9 @@ async function runPhaseExtractFacts(
   signal?: AbortSignal,
 ): Promise<PhaseResult> {
   try {
+    // Upstream 0.60.x coordinates the fence reconcile through the persistence
+    // coordinator on a managed brain (#5280) — the fork skip this workaround
+    // implemented is no longer needed (dropped in the 0.60.12.0 upgrade).
     const { runExtractFacts } = await import('./cycle/extract-facts.ts');
     const result = await runExtractFacts(engine, {
       slugs: changedSlugs,
