@@ -11,6 +11,11 @@ const workflow = safeLoad(readFileSync(join(import.meta.dir, '../../.github/work
   on: { workflow_dispatch: { inputs: { native_only: { type: string; default: boolean } } } };
   concurrency: { group: string; 'cancel-in-progress': boolean }; jobs: Record<string, Job>;
 };
+// Fork delta (Rast53/gbrain): the adapted GitHub-hosted workflows namespace
+// their concurrency group with `gh-hosted` so runs stranded `queued` on the
+// pre-adaptation Ubicloud labels cannot hold the group and leave every adapted
+// run `pending`. Keep this in lockstep with `.github/workflows/test.yml`.
+const FORK_GROUP_NAMESPACE = 'gh-hosted-';
 function context(event: string, flag?: boolean) {
   return { github: { workflow: 'Test', event_name: event, ref: 'refs/heads/example', event: { pull_request: event === 'pull_request' ? { number: 123 } : {} } },
     inputs: { native_only: flag }, always: () => true };
@@ -44,11 +49,11 @@ describe('native-only CI remains separate from full validation', () => {
 
   test('a native retry cannot cancel a full run or emit its required aggregate check name', () => {
     const full = template(workflow.concurrency.group, 'workflow_dispatch', false);
-    expect(full).toBe('Test-refs/heads/example');
+    expect(full).toBe(`Test-${FORK_GROUP_NAMESPACE}refs/heads/example`);
     const native = template(workflow.concurrency.group, 'workflow_dispatch', true);
     expect(native).not.toBe(full);
-    expect(native).toBe('Test-refs/heads/example-native-only');
-    expect(template(workflow.concurrency.group, 'pull_request', true)).toBe('Test-123');
+    expect(native).toBe(`Test-${FORK_GROUP_NAMESPACE}refs/heads/example-native-only`);
+    expect(template(workflow.concurrency.group, 'pull_request', true)).toBe(`Test-${FORK_GROUP_NAMESPACE}123`);
     expect(template(workflow.concurrency.group, 'push', true)).toBe(full);
     expect(workflow.concurrency['cancel-in-progress']).toBe(true);
     expect(template(workflow.jobs['test-status'].name!, 'workflow_dispatch', false)).toBe('test-status');

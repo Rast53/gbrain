@@ -8,6 +8,11 @@ import { verifyNightlyE2E } from '../../scripts/verify-nightly-e2e.ts';
 
 const repo = join(import.meta.dir, '../..');
 const fullProfile = "github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.full_corpus)";
+// Fork delta (Rast53/gbrain): adapted GitHub-hosted runs namespace their e2e
+// concurrency group with `gh-hosted` so runs stranded `queued` on the
+// pre-adaptation Ubicloud labels cannot hold the group and leave adapted runs
+// `pending`. Keep this in lockstep with `.github/workflows/e2e.yml`.
+const FORK_GROUP_NAMESPACE = 'gh-hosted-';
 const expected = Array.from({ length: 4 }, (_, i) => [`test/e2e/fixture-${i}-a.test.ts`, `test/e2e/fixture-${i}-b.test.ts`]);
 function fixture(fn: (root: string) => void, partitions = expected) {
   const root = mkdtempSync(join(tmpdir(), 'gbrain-nightly-e2e-'));
@@ -159,7 +164,7 @@ describe('nightly E2E scheduling', () => {
     const select = selection.run;
     expect(selection.env.FULL_CORPUS).toBe('${{ ' + fullProfile + ' }}');
     const group = workflow.concurrency.group;
-    expect(group).toBe("${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}${{ github.event_name == 'workflow_dispatch' && inputs.full_corpus && '-full-corpus' || '' }}");
+    expect(group).toBe(`\${{ github.workflow }}-${FORK_GROUP_NAMESPACE}\${{ github.event.pull_request.number || github.ref }}\${{ github.event_name == 'workflow_dispatch' && inputs.full_corpus && '-full-corpus' || '' }}`);
     for (const [event, enabled, expected] of [
       ['pull_request', false, false], ['pull_request', true, false], ['push', true, false],
       ['workflow_dispatch', false, false], ['workflow_dispatch', true, true], ['schedule', false, true],

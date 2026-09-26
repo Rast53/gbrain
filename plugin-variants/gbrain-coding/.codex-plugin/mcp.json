@@ -64,6 +64,7 @@
         "OLLAMA_BASE_URL",
         "OPENAI_API_KEY",
         "OPENAI_BASE_URL",
+        "OPENCODE_GO_API_KEY",
         "OPENROUTER_API_KEY",
         "OPENROUTER_BASE_URL",
         "PATH",
