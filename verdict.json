@@ -1,0 +1,46 @@
+{
+  "verdict": "PASS",
+  "sha": "2800b1c1d0a2999f13d1e7d3e876de51beec6d2b",
+  "reasons": [
+    "Head SHA confirmed unchanged: PR #17 headRefOid = 2800b1c1d0a2999f13d1e7d3e876de51beec6d2b (base master, MERGEABLE, 19 files, +156/-107).",
+    "AC5 (pre-merge equivalent of AC1): control Test run 36246756393 at head SHA = success; 79 jobs, 0 failure; test-status = success; every named needs group green (gitleaks, security-regressions, dependency-audit, verify, serial-tests 1-4, slow-eval-longmemeval, slow-entity-resolve-perf, slow-brainbench-e2e, brainbench, test 1-10, native-locks, persistence-validation, admin-browser, shared-skills-compatibility).",
+    "AC1 is a post-merge criterion (first master Test after the waves); no post-merge run exists yet — master Test 36224546564 at 005bffa is queued on the pre-fix Ubicloud labels. The spec explicitly designates item 5 as the pre-merge equivalent, which is green; recorded as skip, not invented.",
+    "AC4: E2E run 36246756429 at head SHA = success (e2e-status success; Selected E2E (diff-relevant) 2 with the #5177 bigint claim test now green); Semgrep 36246756174 = success (Actionlint 36246756159 = success).",
+    "AC6 (negative): master(005bffa) vs head(2800b1c) .github/workflows/test.yml diff contains only runs-on label swaps and the gh-hosted- concurrency-group namespace; needs: list is byte-identical and both shard matrices unchanged ([1..10] for test, [1..4] for serial-tests); no shard disabled or conditioned.",
+    "AC3: scripts/module-size-limits.tsv is absent from the PR diff (no silent ceiling raise); `bash scripts/check-module-size.sh` → OK (propose-takes.ts = 1081 lines, unlisted, under the 1500-line cap).",
+    "AC2/AC7/AC8 (negative): PR body root-causes all five failing clusters (propose_takes config-plane, opencode-go credential registration, e2e claim ratchet, fork runner adaptation + concurrency namespace, #5177 bigint writer intent) with fixes; no .skip/.todo added and no test case removed; the only changed assertions (two concurrency-group pins) each carry an inline rationale comment; diffs are targeted (one 19-line source guard, one e2e-map line, one 6-line e2e call fix, workflow/pin files only) with no mass test-helper rewrite or rename."
+  ],
+  "model": "deepseek/deepseek-v4.1-flash",
+  "gate_version": {
+    "schema": 1,
+    "code_sha": "unknown",
+    "profile": "headless",
+    "model": "deepseek/deepseek-v4.1-flash",
+    "verify_path": "dsh",
+    "chain": [
+      "primary:dsh"
+    ]
+  },
+  "build_model": "deepseek-v4.1-flash",
+  "verify_model": "deepseek/deepseek-v4.1-flash",
+  "build_family": "deepseek",
+  "verify_family": "deepseek",
+  "diversity_degraded": true,
+  "diversity_note": "diversity degraded: no foreign verifier family configured for build family 'deepseek'; using verifier/deepseek-flash",
+  "tokens_in": 54135,
+  "tokens_out": 20523,
+  "cache_read": 942080,
+  "cost_usd": 0.02326,
+  "peak": false,
+  "usage_source": "session_v3",
+  "usage": {
+    "model": "deepseek/deepseek-v4.1-flash",
+    "tokens_in": 54135,
+    "tokens_out": 20523,
+    "cache_read": 942080,
+    "cost_usd": 0.02326,
+    "peak": false,
+    "usage_source": "session_v3",
+    "usage_missing": false
+  }
+}
