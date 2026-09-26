@@ -1,0 +1,92 @@
+{
+  "schema": "evidence.v1",
+  "sha": "2800b1c1d0a2999f13d1e7d3e876de51beec6d2b",
+  "items": [
+    {
+      "id": "1",
+      "type": "ci",
+      "result": "skip",
+      "checked_with": "gh run list/view -R Rast53/gbrain",
+      "proof": "Post-merge criterion: no master Test run exists after the waves. Master Test 36224546564 at 005bffa8 is status=queued (pre-fix Ubicloud labels); the last master Test 35761583653 was failure. Pre-merge equivalent is item 5 (control run 36246756393 success). Not verifiable before merge, so recorded skip rather than a fabricated pass.",
+      "paths": []
+    },
+    {
+      "id": "2",
+      "type": "manual",
+      "result": "pass",
+      "checked_with": "gh pr view 17 -R Rast53/gbrain --json body; gh pr diff 17 --patch",
+      "proof": "PR body documents root cause + decision for each failing cluster (propose_takes model-resolution guard; opencode-go key in PROVIDER_ENV_KEYS + 3 mcp.json manifests; e2e-test-map claim; Ubicloud->ubuntu-24.04 adaptation + gh-hosted concurrency namespace; reviewedWriterIntent for the #5177 bigint claim). Patch scan for removed .skip/.todo/test() shows only equivalent replaced assertions; no silent deletions.",
+      "paths": [
+        "src/core/cycle/propose-takes.ts",
+        "test/e2e/persistence-admin-bigint-postgres.test.ts"
+      ]
+    },
+    {
+      "id": "3",
+      "type": "test",
+      "result": "pass",
+      "checked_with": "bash scripts/check-module-size.sh; gh pr view 17 --json files",
+      "proof": "check-module-size.sh exit 0: 'OK: module sizes within committed ceilings'. scripts/module-size-limits.tsv is not among the 19 changed files, so no ceiling was raised silently. Changed source propose-takes.ts is 1081 lines (<1500 unlisted cap).",
+      "paths": [
+        "src/core/cycle/propose-takes.ts"
+      ]
+    },
+    {
+      "id": "4",
+      "type": "ci",
+      "result": "pass",
+      "checked_with": "gh run view 36246756429 -R Rast53/gbrain; gh run view 36246756174 -R Rast53/gbrain",
+      "proof": "E2E Tests run 36246756429 at head SHA 2800b1c: conclusion=success, e2e-status=success, Selected E2E (diff-relevant) 1-4 all success. Semgrep run 36246756174: conclusion=success. Actionlint run 36246756159: success. (Master push E2E 36224546413 at 005bffa8 is stranded queued on pre-fix labels; adapted runs use ubuntu-24.04.)",
+      "paths": [
+        ".github/workflows/e2e.yml",
+        ".github/workflows/semgrep.yml"
+      ]
+    },
+    {
+      "id": "5",
+      "type": "ci",
+      "result": "pass",
+      "checked_with": "gh run view 36246756393 -R Rast53/gbrain --json jobs",
+      "proof": "Control Test run 36246756393 at head SHA 2800b1c: conclusion=success; 79 jobs, 0 failure; test-status=success. All named needs success: gitleaks, security-regressions (6 OS/Bun cells), dependency-audit, verify, serial-tests (1-4), slow-eval-longmemeval, slow-entity-resolve-perf, slow-brainbench-e2e, brainbench, test (1-10), native-locks (matrix), persistence-validation (matrix), admin-browser, shared-skills-compatibility.",
+      "paths": [
+        ".github/workflows/test.yml"
+      ]
+    },
+    {
+      "id": "6",
+      "type": "diff",
+      "result": "pass",
+      "checked_with": "diff of master(005bffa) vs head(2800b1c) .github/workflows/test.yml",
+      "proof": "Structural diff shows only runs-on label swaps (ubicloud-standard-* -> ubuntu-24.04) and concurrency.group addition of gh-hosted-. `needs:` lines compare byte-identical (NEEDS IDENTICAL). shard matrices unchanged: [1,2,3,4] at test.yml:178 and [1..10] at test.yml:488 match master lines 171/481. No shard removed or conditioned.",
+      "paths": [
+        ".github/workflows/test.yml"
+      ]
+    },
+    {
+      "id": "7",
+      "type": "manual",
+      "result": "pass",
+      "checked_with": "gh pr diff 17 -R Rast53/gbrain --patch; targeted read of changed test files",
+      "proof": "Changed assertions are limited to two concurrency-group pins (test/scripts/native-only-workflow.test.ts, test/scripts/nightly-e2e.test.ts); each introduces FORK_GROUP_NAMESPACE='gh-hosted-' with an inline rationale comment and the rest of the contract (uniqueness across events, native-only suffix, cancel-in-progress, test-status check name) is retained. ci-runner-routing.test.ts expectation swaps carry a block comment. The #5177 e2e adds reviewedWriterIntent (a setup fingerprint) without weakening the int8 string/JSON.stringify assertions. No assertion changed to fit a failure without a why.",
+      "paths": [
+        "test/scripts/native-only-workflow.test.ts",
+        "test/scripts/nightly-e2e.test.ts",
+        "test/scripts/ci-runner-routing.test.ts"
+      ]
+    },
+    {
+      "id": "8",
+      "type": "diff",
+      "result": "pass",
+      "checked_with": "gh pr view 17 -R Rast53/gbrain --json files (per-file additions/deletions)",
+      "proof": "19 files, +156/-107; concentrated in workflow runner routing and the two concurrency pins, plus one 19-line source guard (propose-takes.ts +14/-5), a one-line e2e map claim, a one-line provider-env key, three one-line mcp.json keys, and a 6-line e2e call fix. No mass test-helper rewrite, directory move, or repo-wide rename.",
+      "paths": [
+        "src/core/cycle/propose-takes.ts",
+        "scripts/e2e-test-map.ts",
+        "test/helpers/provider-env.ts",
+        "test/e2e/persistence-admin-bigint-postgres.test.ts",
+        "docs/TESTING.md"
+      ]
+    }
+  ]
+}
