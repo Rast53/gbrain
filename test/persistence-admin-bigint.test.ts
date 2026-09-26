@@ -22,6 +22,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { PGLiteEngine } from '../src/core/pglite-engine.ts';
+import { reviewedWriterIntent } from './helpers/writer-admin-intent.ts';
 import { runPersistenceAdministration } from '../src/core/persistence/administration.ts';
 import { getWorktreeBinding } from '../src/core/persistence/ownership.ts';
 import { withEnv } from './helpers/with-env.ts';
@@ -52,7 +53,7 @@ async function seedAndClaim(): Promise<{ sourceId: string; root: string }> {
   mkdirSync(root, { recursive: true });
   writeFileSync(join(root, 'page.md'), 'canonical bytes');
   await engine.executeRaw('INSERT INTO sources(id,name,local_path) VALUES($1,$1,$2)', [sourceId, root]);
-  const claim = await runPersistenceAdministration(engine, 'writer_claim', { source_id: sourceId, path: root });
+  const claim = await runPersistenceAdministration(engine, 'writer_claim', { source_id: sourceId, path: root, ...(await reviewedWriterIntent(engine, 'writer_claim')) });
   expect(claim.claimed).toBe(true);
   return { sourceId, root };
 }
@@ -74,7 +75,7 @@ describe('persistence admin BigInt boundary contract (#5177)', () => {
     mkdirSync(root, { recursive: true });
     writeFileSync(join(root, 'page.md'), 'canonical bytes');
     await engine.executeRaw('INSERT INTO sources(id,name,local_path) VALUES($1,$1,$2)', [sourceId, root]);
-    const claim = await runPersistenceAdministration(engine, 'writer_claim', { source_id: sourceId, path: root }) as Record<string, unknown>;
+    const claim = await runPersistenceAdministration(engine, 'writer_claim', { source_id: sourceId, path: root, ...(await reviewedWriterIntent(engine, 'writer_claim')) }) as Record<string, unknown>;
     const binding = claim.binding as { owner_epoch: unknown; topology_generation: unknown };
     expect(typeof binding.owner_epoch).toBe('string');
     expect(typeof binding.topology_generation).toBe('string');
@@ -117,10 +118,10 @@ describe('persistence admin BigInt boundary contract (#5177)', () => {
     const successor = join(home, `successor-${randomUUID().slice(0, 8)}`);
     mkdirSync(successor, { recursive: true });
     writeFileSync(join(successor, 'page.md'), 'canonical bytes');
-    const prepared = await runPersistenceAdministration(engine, 'writer_transfer_prepare', { source_id: sourceId }) as Record<string, unknown>;
+    const prepared = await runPersistenceAdministration(engine, 'writer_transfer_prepare', { source_id: sourceId, ...(await reviewedWriterIntent(engine, 'writer_transfer_prepare')) }) as Record<string, unknown>;
     expect(typeof prepared.owner_epoch).toBe('string');
     const accepted = await runPersistenceAdministration(engine, 'writer_transfer_accept', {
-      source_id: sourceId, path: successor, expected_epoch: prepared.owner_epoch as string, manifest: (prepared.manifest as { digest: string }).digest,
+      source_id: sourceId, path: successor, expected_epoch: prepared.owner_epoch as string, manifest: (prepared.manifest as { digest: string }).digest, ...(await reviewedWriterIntent(engine, 'writer_transfer_accept')),
     }) as Record<string, unknown>;
     expect(accepted.transferred).toBe(true);
     const acceptedBinding = accepted.binding as { owner_epoch: string; topology_generation: unknown };
