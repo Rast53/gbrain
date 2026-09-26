@@ -675,11 +675,20 @@ class ProposeTakesPhase extends BaseCyclePhase {
     const phaseStartMs = Date.now();
     const proposalRunId = `propose-${new Date().toISOString().slice(0, 19).replace(/[-:T]/g, '')}-${randomUUID().slice(0, 8)}`;
 
-    const modelId = opts.model ?? normalizeModelId(await resolveModel(engine, {
-      configKey: 'models.propose_takes',
-      tier: 'reasoning',
-      fallback: 'anthropic:claude-sonnet-4-6',
-    }));
+    // raclaw fork (#5180-class): honor `models.propose_takes` through
+    // resolveModel's chain (config key → tier → models.default → env →
+    // fallback). The phase's unit mocks are partial engines without
+    // getConfig, and a config-plane read must never fail the whole phase:
+    // when resolution is unavailable, fall back to the configured gateway
+    // chat model — the pre-fork behavior (`opts.model ?? getChatModel()`).
+    const resolvedModel = typeof engine.getConfig !== 'function'
+      ? getChatModel()
+      : await resolveModel(engine, {
+          configKey: 'models.propose_takes',
+          tier: 'reasoning',
+          fallback: getChatModel(),
+        }).catch(() => getChatModel());
+    const modelId = opts.model ?? normalizeModelId(resolvedModel);
 
     // #4494: configurable extractor output caps (dream.triage.max_tokens
     // precedent — floor 256, retry clamped >= base, fail-open to the #3763
