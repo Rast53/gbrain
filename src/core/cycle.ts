@@ -52,6 +52,7 @@ import { getCliOptions, cliOptsToProgressOptions } from './cli-options.ts';
 import { tryAcquireDbLock, reapDeadHolderLocks, LockStolenError, type DbLockHandle } from './db-lock.ts';
 import { assertValidSourceId } from './source-id.ts';
 import { managedPersistenceEnabled } from './persistence/ownership.ts';
+import { managedPhaseSkip } from './persistence/maintenance.ts';
 import { PHASE_SCOPE, SOURCE_FRESHNESS_PHASES, type PhaseScope } from './cycle/phase-scope.ts';
 import { assertEmbedNotStalled } from './embed-stall.ts';
 
@@ -1048,6 +1049,12 @@ function checkAborted(signal?: AbortSignal): void {
 // going through runCycle's full setup cost.
 export async function runPhaseLint(brainDir: string, dryRun: boolean, engine?: BrainEngine | null, signal?: AbortSignal): Promise<PhaseResult> {
   try {
+    // raclaw(#5180): the legacy `lint fix` path writes through the filesystem
+    // guard a managed brain refuses; report `skipped` with the reason so a
+    // healthy per-source cycle stays `ok` instead of `partial` forever.
+    if (!dryRun && engine && await managedPersistenceEnabled(engine)) {
+      return managedPhaseSkip('lint', 'lint fix skipped: a managed brain does not accept legacy filesystem writes');
+    }
     const { runLintCore } = await import('../commands/lint.ts');
     // issue #1678: pass the cycle's live engine so lint's content-sanity
     // DB-plane lift REUSES it instead of creating + disconnecting a
@@ -1471,6 +1478,13 @@ async function runPhaseExtractFacts(
   signal?: AbortSignal,
 ): Promise<PhaseResult> {
   try {
+    // raclaw(#5203, phase half): the legacy fence reconcile writes `facts`
+    // rows outside the persistence coordinator, which the managed-writer
+    // guard refuses; the coordinated import path already indexes `## Facts`
+    // rows at write time. Report `skipped` so the lane stays healthy.
+    if (!dryRun && await managedPersistenceEnabled(engine)) {
+      return managedPhaseSkip('extract_facts', 'extract_facts skipped: fence rows are indexed by the coordinated import path on a managed brain');
+    }
     const { runExtractFacts } = await import('./cycle/extract-facts.ts');
     const result = await runExtractFacts(engine, {
       slugs: changedSlugs,

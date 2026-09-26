@@ -64,3 +64,19 @@ export async function backupUnmanagedPglite(dataDir: string, backupDir: string):
     lock.lockDir = join(backupDir, '.gbrain-lock');
   } finally { await releaseLock(lock); }
 }
+
+/**
+ * Build the `skipped` PhaseResult for a legacy maintenance phase that a
+ * managed brain refuses to run through the legacy path (#5175/#5180/#5203).
+ * The phase reports `skipped` + `writer_coordinator_required` so a healthy
+ * lane stays `ok` instead of `partial` forever.
+ */
+export function managedPhaseSkip<P extends string>(phase: P, summary: string) {
+  return {
+    phase,
+    status: 'skipped' as const,
+    duration_ms: 0,
+    summary,
+    details: { reason: 'writer_coordinator_required' },
+  };
+}
