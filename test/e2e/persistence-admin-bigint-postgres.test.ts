@@ -21,6 +21,7 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { runPersistenceAdministration } from '../../src/core/persistence/administration.ts';
 import { getWorktreeBinding } from '../../src/core/persistence/ownership.ts';
+import { reviewedWriterIntent } from '../helpers/writer-admin-intent.ts';
 import { hasDatabase, setupDB, teardownDB, getEngine } from './helpers.ts';
 
 const skip = !hasDatabase();
@@ -41,7 +42,11 @@ describeE2E('persistence admin int8 outputs on Postgres (#5177)', () => {
 
     // Pre-fix this call's return value made JSON.stringify throw downstream in
     // the CLI renderer: postgres.js decodes owner_epoch as a raw BigInt here.
-    const claim = await runPersistenceAdministration(engine, 'writer_claim', { source_id: sourceId, path: root }) as Record<string, unknown>;
+    // writer_claim is a topology change, so it requires the action-specific
+    // admin intent + the reviewed state fingerprint (the surface this test
+    // exercises is the int8 decode, not the authorization). Take the
+    // fingerprint from a fresh writer_status, exactly as the CLI flow does.
+    const claim = await runPersistenceAdministration(engine, 'writer_claim', { source_id: sourceId, path: root, ...(await reviewedWriterIntent(engine, 'writer_claim')) }) as Record<string, unknown>;
     expect(claim.claimed).toBe(true);
     const binding = claim.binding as { owner_epoch: unknown; topology_generation: unknown };
     expect(typeof binding.owner_epoch).toBe('string');
