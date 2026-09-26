@@ -1,7 +1,7 @@
-self-hosted-runner:
-  labels:
-    - ubicloud-standard-2-ubuntu-2404
-    - ubicloud-standard-4-ubuntu-2404
-    - ubicloud-standard-16-ubuntu-2404
-    - ubicloud-standard-30-ubuntu-2404
-    - ubicloud-standard-16-arm-ubuntu-2404
+# Fork delta: upstream routes repository-owned Linux jobs to Ubicloud
+# self-hosted labels (`ubicloud-standard-*`). This fork has no Ubicloud
+# Managed Runners GitHub App or billing, so every label now uses a standard
+# GitHub-hosted runner (`ubuntu-24.04`, `ubuntu-24.04-arm`) that actionlint
+# recognizes natively. No custom self-hosted labels remain to declare; keep
+# the file so the actionlint workflow's path trigger stays meaningful.
+{}
