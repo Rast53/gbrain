@@ -26,8 +26,15 @@ permissions:
 # github.ref for push/scheduled runs. Mirrors heavy-tests.yml; frees runners
 # and stops a stale-SHA run from reporting a flaky failure on an obsolete commit.
 # Explicit native-only retries use a separate group so full persistence soaks finish.
+#
+# Fork delta: runs created before the GitHub-hosted runner adaptation are
+# stranded `queued` on Ubicloud labels no runner will ever satisfy, and a
+# stranded run holds its concurrency group forever — leaving every adapted run
+# `pending`. The `gh-hosted` namespace starts a fresh group so the adapted
+# pipeline is not blocked by those legacy runs; `cancel-in-progress` still
+# coalesces successive adapted runs as before.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}${{ github.event_name == 'workflow_dispatch' && inputs.native_only == true && '-native-only' || '' }}
+  group: ${{ github.workflow }}-gh-hosted-${{ github.event.pull_request.number || github.ref }}${{ github.event_name == 'workflow_dispatch' && inputs.native_only == true && '-native-only' || '' }}
   cancel-in-progress: true
 
 jobs:
