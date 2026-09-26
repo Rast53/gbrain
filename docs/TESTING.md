@@ -14,61 +14,35 @@ only.
 
 ## CI runner capacity
 
-Repository-owned Linux validation jobs use ephemeral Ubicloud runners pinned to
-Ubuntu 24.04. The Ubicloud Managed Runners GitHub App must have access to this
-repository and active billing in its connected project; runner labels alone do
-not grant access. No Ubicloud API token is passed to workflow jobs.
+Repository-owned Linux validation jobs use standard GitHub-hosted Ubuntu 24.04
+runners; native ARM64 jobs use GitHub's `ubuntu-24.04-arm` hosted runner. This
+is the fork adaptation of upstream's Ubicloud routing: the fork has no Ubicloud
+Managed Runners GitHub App or billing, so upstream's `ubicloud-standard-*`
+labels are replaced everywhere with the closest standard GitHub-hosted label.
+The upstream 16/30-vCPU jobs therefore run on 4-vCPU machines; per-job timeouts
+carry that load rather than any lane being disabled.
 
-| Workload | Runner | Capacity |
+| Upstream label | Fork label | Workload |
 | --- | --- | --- |
-| Unit shards, slow and eval jobs, BrainBench, admin browser, shared-skills compatibility, persistence soak, reconciliation crashes and read latency, native Linux cells, OpenClaw startup, JSONB parity, selected E2E and Tier 2 | `ubicloud-standard-4-ubuntu-2404` | 4 vCPU, 16 GB RAM |
-| Serial pool (PR and nightly coverage), `verify`, PgBouncer/RLS deployment matrix | `ubicloud-standard-8-ubuntu-2404` | 8 vCPU, 32 GB RAM |
-| E2E Tier 1 (its CLI `init` spawns exceed their timeouts on 4 vCPUs), label-gated and nightly heavy-tests jobs | `ubicloud-standard-16-ubuntu-2404` | 16 vCPU, 64 GB RAM |
-| Label-gated heavy test suite | `ubicloud-standard-30-ubuntu-2404` | 30 vCPU, 120 GB RAM |
-| Native ARM64 glibc and musl tests | `ubicloud-standard-4-arm-ubuntu-2404` | 4 vCPU |
-| Coverage reports and Semgrep | `ubicloud-standard-4-ubuntu-2404` | 4 vCPU, 16 GB RAM |
-| Planning, status aggregation, dependency audit, gitleaks, security regressions and actionlint | `ubicloud-standard-2-ubuntu-2404` | 2 vCPU, 8 GB RAM |
+| `ubuntu-24.04` | `ubuntu-24.04` | Planning, status aggregation, dependency audit, gitleaks and actionlint |
+| `ubuntu-24.04` | `ubuntu-24.04` | Coverage reports and Semgrep |
+| `ubuntu-24.04` | `ubuntu-24.04` | Unit, serial, E2E, browser, compatibility, read-performance and deployment-matrix tests |
+| `ubuntu-24.04` | `ubuntu-24.04` | Heavy test suite and persistence invariant/soak matrix |
+| `ubuntu-24.04-arm` | `ubuntu-24.04-arm` | Native ARM64 glibc and musl tests |
 
 macOS and Windows matrices stay on GitHub-hosted runners. Release building and
 publishing also stay unchanged. The pinned upstream OSV reusable workflow does
 not expose a runner override, so its runner remains upstream-owned.
 
-Sizes come from measured CPU use, not guesses. Each Ubicloud project shares one
-vCPU quota between pull-request CI and agent `ci:ubicloud` VMs, so an oversized
-runner makes every other job wait. On matched VMs (September 2026), a unit
-shard is one Bun process that averaged 1.1-1.5 busy cores and took 361s on 4,
-8 and 16 vCPUs (488s on 2); the serial pool and `verify` took the same time on
-8 and 16 vCPUs (serial shard 2: 222s and 224s; 277s on 4); the 2,500-write
-PGLite soak averaged 1.3-1.8 busy cores and took 523s on 4 vCPUs and 500s on
-16. Re-measure with `scripts/ubicloud/ubi-runner.sh run -s standard-N` before
-growing a runner: more CPU does not shorten a single-process job.
-`test/scripts/ci-runner-routing.test.ts` pins capacity and platform routing;
-`.github/actionlint.yaml` declares the exact custom runner labels. Actual
-GitHub job records and completed checks establish runner availability; local
-workflow tests do not.
-
-### Pull request, master and nightly scope
-
-Every test file runs on every push to master, on the nightly schedule and on
-manual dispatch. Pull requests run a narrower matrix of the same files:
-
-| Lane | Pull request | Push to master, nightly, manual |
-| --- | --- | --- |
-| Security regressions | Linux, macOS and Windows on Bun 1.3.13 | Also Bun 1.3.11 |
-| Persistence read latency, deployment matrix, soak, reconciliation crashes | Bun 1.3.13 | Bun 1.3.11 and 1.3.13 |
-| Persistence soak size | 2,500 writes | 10,000 writes |
-| Native writer locks, native paths changed | Every target on Bun 1.3.13, musl, both Windows probes, OpenClaw | Every target, musl and Windows probe on Bun 1.3.11, 1.3.13 and 1.4.2, OpenClaw |
-| Native writer locks, other changes | `linux-x64-glibc / Bun 1.3.13` smoke cell (full native step list) | Same as above |
-| `test/export-scale.slow.test.ts` | 10,001 pages | 100,001 pages |
-
-The `changes` job classifies a pull request's changed files with
-`scripts/ci-native-scope.sh`: native lock sources, the native toolchain, IPC,
-persistence, publication, backup, export and sync sources, their native tests,
-`package.json`, `bun.lock` and the workflow files select every target. An
-unreadable file list selects every target too. Skipped cells never report a
-failure: `test-status` needs the `native-locks` and `persistence-validation`
-workflow calls, which succeed when their remaining cells do, so the required
-check names are unchanged. `test/scripts/ci-pr-scope.test.ts` pins every scope.
+The migration does not change shards, test selection, commands, thresholds,
+artifact collection or required check identities. The security matrix retains
+its existing OS labels and changes only the Linux execution target.
+`test/scripts/ci-runner-routing.test.ts` pins the GitHub-hosted routing;
+`.github/actionlint.yaml` declares no custom self-hosted labels because the
+standard labels are recognized natively. Actual GitHub job records and
+completed checks establish runner availability; local workflow tests do not.
+More CPU and memory do not guarantee proportional speedups for serial tests or
+external-provider requests.
 
 Shared-skill tests distinguish canonical publication, protocol delivery, installed
 files and native harness use. `test/shared-skills-transports.test.ts` and
