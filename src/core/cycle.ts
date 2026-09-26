@@ -55,6 +55,7 @@ import { isManagedBrain } from './cycle/phase-table.ts';
 import { managedPullWarning, type UpstreamRefresh } from './sync-upstream.ts';
 import { assertValidSourceId } from './source-id.ts';
 import { managedPersistenceEnabled } from './persistence/ownership.ts';
+import { managedPhaseSkip } from './persistence/maintenance.ts';
 import { PHASE_SCOPE, SOURCE_FRESHNESS_PHASES, type PhaseScope } from './cycle/phase-scope.ts';
 import { assertEmbedNotStalled } from './embed-stall.ts';
 import { anyAbortSignal } from './abort-signals.ts';
@@ -1007,6 +1008,12 @@ function checkAborted(signal?: AbortSignal): void {
 // going through runCycle's full setup cost.
 export async function runPhaseLint(brainDir: string, dryRun: boolean, engine?: BrainEngine | null, signal?: AbortSignal): Promise<PhaseResult> {
   try {
+    // raclaw(#5180): the legacy `lint fix` path writes through the filesystem
+    // guard a managed brain refuses; report `skipped` with the reason so a
+    // healthy per-source cycle stays `ok` instead of `partial` forever.
+    if (!dryRun && engine && await managedPersistenceEnabled(engine)) {
+      return managedPhaseSkip('lint', 'lint fix skipped: a managed brain does not accept legacy filesystem writes');
+    }
     const { runLintCore } = await import('../commands/lint.ts');
     // issue #1678: pass the cycle's live engine so lint's content-sanity
     // DB-plane lift REUSES it instead of creating + disconnecting a
@@ -1436,6 +1443,9 @@ async function runPhaseExtractFacts(
   signal?: AbortSignal,
 ): Promise<PhaseResult> {
   try {
+    // Upstream 0.60.x coordinates the fence reconcile through the persistence
+    // coordinator on a managed brain (#5280) — the fork skip this workaround
+    // implemented is no longer needed (dropped in the 0.60.12.0 upgrade).
     const { runExtractFacts } = await import('./cycle/extract-facts.ts');
     const result = await runExtractFacts(engine, {
       slugs: changedSlugs,
