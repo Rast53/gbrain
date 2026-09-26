@@ -308,6 +308,7 @@ export const E2E_TEST_MAP: Record<string, string[]> = {
     "test/e2e/persistence-admin-intent.test.ts",
     "test/e2e/persistence-writer-admin-lock.test.ts",
     "test/e2e/persistence-writer-stamps.test.ts",
+    "test/e2e/persistence-admin-bigint-postgres.test.ts",
     "test/e2e/persistence-recovery.test.ts",
     "test/e2e/managed-sync-failures.test.ts",
     "test/e2e/managed-connector-routing.test.ts",
