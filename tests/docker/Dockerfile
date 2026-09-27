@@ -21,6 +21,10 @@ WORKDIR /app
 # before `bun install` (package.json wires it as the postinstall hook; it
 # exits 0 on every path by contract).
 COPY package.json bun.lock bunfig.toml ./
+# patches/ must land BEFORE bun install: package.json patchedDependencies
+# (postgres@3.4.9) makes `bun install --frozen-lockfile` fail with
+# "Couldn't find patch file" when the patch is only COPYed later via COPY . .
+COPY patches/ patches/
 COPY scripts/postinstall.ts scripts/postinstall.ts
 RUN bun install --frozen-lockfile
 
