@@ -273,7 +273,7 @@ export function hasCodexAuth(): boolean {
  *  "HTTP 401: Missing Authentication header" as final text (exit 0). */
 const HERMES_ALL_PROVIDER_KEYS = [
   'ANTHROPIC_API_KEY', 'ANTHROPIC_BASE_URL', 'ANTHROPIC_AUTH_TOKEN',
-  'OPENAI_API_KEY', 'OPENROUTER_API_KEY',
+  'OPENAI_API_KEY', 'OPENROUTER_API_KEY', 'DEEPSEEK_API_KEY',
 ] as const;
 
 /** Parse KEY=VALUE lines from a dotenv-style file. Ignores comments, blanks,
@@ -311,9 +311,10 @@ export function parseDotenvFile(file: string): Record<string, string> {
  */
 export function hasHermesAuth(): boolean {
   const env = promotedEnv(process.env);
-  if (env.ANTHROPIC_API_KEY?.trim()) return true;
-  const parsed = parseDotenvFile(path.join(os.homedir(), '.hermes', '.env'));
-  return Boolean(parsed.ANTHROPIC_API_KEY?.trim());
+  const fromFile = parseDotenvFile(path.join(os.homedir(), '.hermes', '.env'));
+  return Boolean(
+    env.DEEPSEEK_API_KEY?.trim() || fromFile.DEEPSEEK_API_KEY?.trim() ||
+    env.ANTHROPIC_API_KEY?.trim() || fromFile.ANTHROPIC_API_KEY?.trim());
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -796,9 +797,15 @@ export function seedHermesHome(home: string, opts?: SeedHermesHomeOpts): string 
 
   const fromFile = parseDotenvFile(opts?.sourceEnvPath ?? path.join(os.homedir(), '.hermes', '.env'));
   const env = promotedEnv(process.env);
-  const key = fromFile.ANTHROPIC_API_KEY?.trim() || env.ANTHROPIC_API_KEY?.trim();
-  if (key) {
-    fs.writeFileSync(path.join(hermesHome, '.env'), `ANTHROPIC_API_KEY=${key}\n`, { mode: 0o600 });
+  // Provider priority: DEEPSEEK first (door default since the Anthropic
+  // budget was retired), Anthropic kept as a fallback door configuration.
+  const lines: string[] = [];
+  const ds = fromFile.DEEPSEEK_API_KEY?.trim() || env.DEEPSEEK_API_KEY?.trim();
+  const an = fromFile.ANTHROPIC_API_KEY?.trim() || env.ANTHROPIC_API_KEY?.trim();
+  if (ds) lines.push(`DEEPSEEK_API_KEY=${ds}`);
+  if (an) lines.push(`ANTHROPIC_API_KEY=${an}`);
+  if (lines.length) {
+    fs.writeFileSync(path.join(hermesHome, '.env'), lines.join('\n') + '\n', { mode: 0o600 });
   }
   return hermesHome;
 }
@@ -822,7 +829,10 @@ export const hermesChildEnv = makeAgentChildEnv({
  * observed), and `hermes model` is interactive-only — `config set` is the
  * scriptable path (observed working against v0.20.0).
  */
-export function pinHermesModel(hermesBin: string, home: string, model = 'anthropic/claude-haiku-4.5'): { code: number | null; stderr: string } {
+// Door model pin: bare DeepSeek slugs are the provider-native form for the
+// direct api.deepseek.com provider (v0.20.0 provider table). Anthropic ids
+// stay fully-qualified for the legacy door configuration.
+export function pinHermesModel(hermesBin: string, home: string, model = 'deepseek-flash'): { code: number | null; stderr: string } {
   const res = spawnSync(hermesBin, ['config', 'set', 'model.default', model], {
     env: hermesChildEnv(home),
     encoding: 'utf8',

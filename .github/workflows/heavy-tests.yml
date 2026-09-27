@@ -349,7 +349,7 @@ jobs:
       - name: Preconditions (binary, secret, version pin)
         id: paidgate
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           # #5903: the repository-wide paid-lane switch (see e2e.yml tier2).
           GBRAIN_PAID_LANES: ${{ vars.GBRAIN_PAID_LANES }}
         run: |
@@ -376,45 +376,49 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          if [ -z "$ANTHROPIC_API_KEY" ]; then
-            # Visible skip on every event: the owner has approved setting the
-            # secret (GBRA-47 D-1) and only the owner can set it, so a red job
-            # here would only repeat that fact every night. The skip is never
-            # read as green: "Run hermes door tests" ends `skipped`, which
-            # nightly-watch matches against the `known-skipped` row in
-            # .github/nightly-known-red.tsv and keeps the incident open.
-            echo "paid=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::hermes door PAID LEG SKIPPED — ANTHROPIC_API_KEY secret is empty. Why: only the repo owner can set secrets. Fix (owner-only): gh secret set ANTHROPIC_API_KEY. Installer digest + payload + version pins verified; no hermes turn ran. Tracked as known-skipped in .github/nightly-known-red.tsv." >&2
-            {
-              echo "## Hermes door: paid leg skipped (known-skipped)"
-              echo "ANTHROPIC_API_KEY secret is empty — installer digest, payload, and version pins verified, but no hermes turn ran."
-              echo ""
-              echo "- Why: only the repo owner can set secrets."
-              echo "- Fix (owner-only): \`gh secret set ANTHROPIC_API_KEY\`, then delete the hermes row from \`.github/nightly-known-red.tsv\`."
-              echo "- Tracking: nightly-watch keeps this workflow's incident open while the row matches; this run is not green coverage."
-            } >> "$GITHUB_STEP_SUMMARY"
-            exit 0
+          if [ -z "$DEEPSEEK_API_KEY" ]; then
+            # Split posture: schedule/dispatch stay LOUD-FAIL — the owner is
+            # the audience there and owns the secret. A pull_request run's
+            # audience is a PR author who cannot fix repo secrets (fork PRs
+            # never receive them at all), and a permanently-red check trains
+            # reviewers to ignore this door — so on PRs the missing paid leg
+            # is a VISIBLE SKIP (warning + job summary), never a silent green.
+            # Fork delta: the door runs on the direct DeepSeek API
+            # (DEEPSEEK_API_KEY) instead of Anthropic.
+            if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+              echo "paid=false" >> "$GITHUB_OUTPUT"
+              echo "::warning::hermes door PAID LEG SKIPPED — DEEPSEEK_API_KEY secret is empty (owner-only fix: gh secret set DEEPSEEK_API_KEY). Installer digest + payload + version pins verified; no hermes turn ran." >&2
+              {
+                echo "## Hermes door: paid leg skipped"
+                echo "DEEPSEEK_API_KEY secret is empty — installer digest, payload, and version pins verified, but no hermes turn ran."
+                echo "The nightly schedule stays loud-fail until the owner sets the secret."
+              } >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            echo "::error::DEEPSEEK_API_KEY secret is empty — this scheduled/dispatched run cannot cover the hermes door without it (owner-only fix: gh secret set DEEPSEEK_API_KEY)" >&2
+            exit 1
           fi
           echo "paid=true" >> "$GITHUB_OUTPUT"
 
       - name: Configure hermes (auth + model pin)
         if: steps.paidgate.outputs.paid == 'true'
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
           mkdir -p ~/.hermes
-          printf 'ANTHROPIC_API_KEY=%s\n' "$ANTHROPIC_API_KEY" > ~/.hermes/.env
+          printf 'DEEPSEEK_API_KEY=%s\n' "$DEEPSEEK_API_KEY" > ~/.hermes/.env
           chmod 600 ~/.hermes/.env
           # `hermes model` is interactive-only; `config set` is the observed
-          # non-interactive model pin.
-          hermes config set model.default anthropic/claude-haiku-4.5
+          # non-interactive model pin. Bare slug = provider-native form for
+          # the direct api.deepseek.com provider (no proxy, DC-friendly).
+          hermes config set model.default deepseek-flash
           # Global health check — informational only, never a gate here.
           hermes doctor || true
 
       - name: Run hermes door tests
         if: steps.paidgate.outputs.paid == 'true'
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
           # Redirect to a file, then tail — never pipe bun through tail (the
           # pipe eats the real exit code and truncates failure details).
@@ -450,7 +454,7 @@ jobs:
       - name: Scrub credentials from evidence (defensive)
         if: failure() && env.GBRAIN_E2E_EVIDENCE_DIR != ''
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
           # Three layers, because the evidence dir carries files WRITTEN BY
           # THE THIRD-PARTY HERMES BINARY (logs/sessions) and upload-artifact
@@ -462,8 +466,8 @@ jobs:
           #    are most likely exactly on the failure path that uploads).
           find "$GBRAIN_E2E_EVIDENCE_DIR" -type f \( -name '.env' -o -name '*.env' \) -exec rm -f {} + 2>/dev/null || true
           find "$GBRAIN_E2E_EVIDENCE_DIR" -type l -delete 2>/dev/null || true
-          if [ -n "$ANTHROPIC_API_KEY" ]; then
-            grep -rlF "$ANTHROPIC_API_KEY" "$GBRAIN_E2E_EVIDENCE_DIR" 2>/dev/null | while IFS= read -r f; do
+          if [ -n "$DEEPSEEK_API_KEY" ]; then
+            grep -rlF "$DEEPSEEK_API_KEY" "$GBRAIN_E2E_EVIDENCE_DIR" 2>/dev/null | while IFS= read -r f; do
               echo "::warning::removing evidence file containing the API key: ${f#"$GBRAIN_E2E_EVIDENCE_DIR"/}" >&2
               rm -f "$f"
             done
