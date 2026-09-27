@@ -24,7 +24,7 @@ on:
         type: boolean
         default: false
       run_opencode_paid:
-        description: 'Run the credentialed OpenCode lane (requires ANTHROPIC_API_KEY; may incur API cost)'
+        description: 'Run the credentialed OpenCode lane (requires DEEPSEEK_API_KEY for the hermes door; may incur API cost)'
         type: boolean
         default: false
 
@@ -127,7 +127,7 @@ jobs:
   # does NOT have — so the tests self-SKIP (describe.skipIf on binary/auth) and
   # the job is a clean no-op here. It exists so a self-hosted /
   # manually-provisioned runner WITH authed claude/codex/hermes (and
-  # ANTHROPIC/OPENAI creds) actually exercises the real binaries. Heavy cadence
+  # DEEPSEEK/OPENAI creds) actually exercises the real binaries. Heavy cadence
   # only (nightly + `real-agent-e2e` label + dispatch); NEVER the PR shard
   # matrix.
   real-agent-e2e:
@@ -285,7 +285,7 @@ jobs:
       - name: Preconditions (binary, secret, version pin)
         id: paidgate
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
           if ! command -v hermes >/dev/null 2>&1; then
             echo "::error::hermes did not resolve on PATH after install" >&2
@@ -299,7 +299,7 @@ jobs:
             echo "::error::hermes version drift — expected v$HERMES_VERSION in: $version_output" >&2
             exit 1
           fi
-          if [ -z "$ANTHROPIC_API_KEY" ]; then
+          if [ -z "$DEEPSEEK_API_KEY" ]; then
             # Split posture: schedule/dispatch stay LOUD-FAIL — the owner is
             # the audience there and owns the secret. A pull_request run's
             # audience is a PR author who cannot fix repo secrets (fork PRs
@@ -308,15 +308,15 @@ jobs:
             # is a VISIBLE SKIP (warning + job summary), never a silent green.
             if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
               echo "paid=false" >> "$GITHUB_OUTPUT"
-              echo "::warning::hermes door PAID LEG SKIPPED — ANTHROPIC_API_KEY secret is empty (owner-only fix: gh secret set ANTHROPIC_API_KEY). Installer digest + payload + version pins verified; no hermes turn ran." >&2
+              echo "::warning::hermes door PAID LEG SKIPPED — DEEPSEEK_API_KEY secret is empty (owner-only fix: gh secret set DEEPSEEK_API_KEY). Installer digest + payload + version pins verified; no hermes turn ran." >&2
               {
                 echo "## Hermes door: paid leg skipped"
-                echo "ANTHROPIC_API_KEY secret is empty — installer digest, payload, and version pins verified, but no hermes turn ran."
+                echo "DEEPSEEK_API_KEY secret is empty — installer digest, payload, and version pins verified, but no hermes turn ran."
                 echo "The nightly schedule stays loud-fail until the owner sets the secret."
               } >> "$GITHUB_STEP_SUMMARY"
               exit 0
             fi
-            echo "::error::ANTHROPIC_API_KEY secret is empty — this scheduled/dispatched run cannot cover the hermes door without it (owner-only fix: gh secret set ANTHROPIC_API_KEY)" >&2
+            echo "::error::DEEPSEEK_API_KEY secret is empty — this scheduled/dispatched run cannot cover the hermes door without it (owner-only fix: gh secret set DEEPSEEK_API_KEY)" >&2
             exit 1
           fi
           echo "paid=true" >> "$GITHUB_OUTPUT"
@@ -324,21 +324,22 @@ jobs:
       - name: Configure hermes (auth + model pin)
         if: steps.paidgate.outputs.paid == 'true'
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
           mkdir -p ~/.hermes
-          printf 'ANTHROPIC_API_KEY=%s\n' "$ANTHROPIC_API_KEY" > ~/.hermes/.env
+          printf 'DEEPSEEK_API_KEY=%s\n' "$DEEPSEEK_API_KEY" > ~/.hermes/.env
           chmod 600 ~/.hermes/.env
           # `hermes model` is interactive-only; `config set` is the observed
-          # non-interactive model pin.
-          hermes config set model.default anthropic/claude-haiku-4.5
+          # non-interactive model pin. Bare slug = provider-native form for
+          # the direct api.deepseek.com provider (no proxy, DC-friendly).
+          hermes config set model.default deepseek-flash
           # Global health check — informational only, never a gate here.
           hermes doctor || true
 
       - name: Run hermes door tests
         if: steps.paidgate.outputs.paid == 'true'
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
           # Redirect to a file, then tail — never pipe bun through tail (the
           # pipe eats the real exit code and truncates failure details).
@@ -374,7 +375,7 @@ jobs:
       - name: Scrub credentials from evidence (defensive)
         if: failure() && env.GBRAIN_E2E_EVIDENCE_DIR != ''
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
           # Three layers, because the evidence dir carries files WRITTEN BY
           # THE THIRD-PARTY HERMES BINARY (logs/sessions) and upload-artifact
@@ -386,8 +387,8 @@ jobs:
           #    are most likely exactly on the failure path that uploads).
           find "$GBRAIN_E2E_EVIDENCE_DIR" -type f \( -name '.env' -o -name '*.env' \) -exec rm -f {} + 2>/dev/null || true
           find "$GBRAIN_E2E_EVIDENCE_DIR" -type l -delete 2>/dev/null || true
-          if [ -n "$ANTHROPIC_API_KEY" ]; then
-            grep -rlF "$ANTHROPIC_API_KEY" "$GBRAIN_E2E_EVIDENCE_DIR" 2>/dev/null | while IFS= read -r f; do
+          if [ -n "$DEEPSEEK_API_KEY" ]; then
+            grep -rlF "$DEEPSEEK_API_KEY" "$GBRAIN_E2E_EVIDENCE_DIR" 2>/dev/null | while IFS= read -r f; do
               echo "::warning::removing evidence file containing the API key: ${f#"$GBRAIN_E2E_EVIDENCE_DIR"/}" >&2
               rm -f "$f"
             done
@@ -870,7 +871,7 @@ jobs:
         if: matrix.lane == 'credentialed'
         id: paidgate
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
           key="${ANTHROPIC_API_KEY:-}"
           if [ -z "${key//[[:space:]]/}" ]; then
@@ -935,8 +936,8 @@ jobs:
           # logs on the failure path.
           find "$GBRAIN_E2E_EVIDENCE_DIR" -type f \( -name '.env' -o -name '*.env' -o -name 'auth.json' \) -exec rm -f {} + 2>/dev/null || true
           find "$GBRAIN_E2E_EVIDENCE_DIR" -type l -delete 2>/dev/null || true
-          if [ -n "$ANTHROPIC_API_KEY" ]; then
-            grep -rlF "$ANTHROPIC_API_KEY" "$GBRAIN_E2E_EVIDENCE_DIR" 2>/dev/null | while IFS= read -r f; do
+          if [ -n "$DEEPSEEK_API_KEY" ]; then
+            grep -rlF "$DEEPSEEK_API_KEY" "$GBRAIN_E2E_EVIDENCE_DIR" 2>/dev/null | while IFS= read -r f; do
               echo "::warning::removing evidence file containing the API key: ${f#"$GBRAIN_E2E_EVIDENCE_DIR"/}" >&2
               rm -f "$f"
             done
