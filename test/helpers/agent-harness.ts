@@ -40,6 +40,7 @@ import { operations, type OperationContext, type Operation } from '../../src/cor
 import { saveConfig, gbrainPath, type GBrainConfig } from '../../src/core/config.ts';
 import { addSource, SourceOpError } from '../../src/core/sources-ops.ts';
 import { registerLocalWriter } from '../../src/core/persistence/identity.ts';
+import { filterOpsForSurface } from '../../src/mcp/surface.ts';
 
 // ────────────────────────────────────────────────────────────────────────────
 // 1. Hermetic child environment
@@ -1377,15 +1378,19 @@ export interface SeededBrain {
 
 /**
  * Scopes a SEEDED local stdio writer must hold for the spawned `gbrain serve`
- * to advertise the FULL declared starter surface. The default local grant
- * (read/write) does NOT cover the five scoped starter ops — `put_skill` /
- * `delete_skill` require `skill_editor`, and `join_brain` /
- * `sync_brain_skills` / `leave_brain` require `skills_member_self` — so
- * `stdioVisibleTools` correctly fail-closes them out of `tools/list`. Door
- * tests that pin the tools/list ORACLE opt into this complete grant via
- * `seedBrainForAgent(..., { registerStdioWriter: true })`.
+ * to advertise the FULL declared starter surface. Derived from the surface
+ * itself so the fixture grant can never drift from the oracle: the default
+ * local grant (read/write) does NOT cover the scoped starter ops —
+ * `put_skill`/`delete_skill` require `skill_editor`, and
+ * `join_brain`/`sync_brain_skills`/`leave_brain` require
+ * `skills_member_self` — so `stdioVisibleTools` correctly fail-closes them out
+ * of `tools/list`. Door tests that pin the tools/list ORACLE opt into this
+ * complete grant via `seedBrainForAgent(..., { registerStdioWriter: true })`.
  */
-export const SEEDED_STDIO_WRITER_SCOPES = ['read', 'write', 'skill_editor', 'skills_member_self'] as const;
+export const SEEDED_STDIO_WRITER_SCOPES: readonly string[] = [...new Set([
+  'read', 'write',
+  ...filterOpsForSurface(operations, 'starter').flatMap((op) => op.requiredScopes ?? []),
+])];
 
 /**
  * Initialize a keyless PGLite brain at GBRAIN_HOME=<home> and seed ONE page
