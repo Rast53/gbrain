@@ -1,0 +1,114 @@
+{
+  "schema": "evidence.v1",
+  "sha": "2309010480d27c67b2786d369d2cc1fc1874341d",
+  "items": [
+    {
+      "id": "1",
+      "type": "manual",
+      "result": "pass",
+      "checked_with": "GitHub API log download of nightly heavy run 36585780372 job 109465579362; independent launcher spawn probe `bun run /tmp/verify-probe.ts` (git archive HEAD -> staged .agents/gbrain-launcher + serve --surface starter --source-guard)",
+      "proof": "Nightly log shows the codex INSTALL oracle failing with Expected -5 / Received 0 for delete_skill, join_brain, leave_brain, put_skill, sync_brain_skills at codex-plugin-install-real.serial.test.ts:221. With the PR helper fix the same launcher command over a registerStdioWriter seed returned `visible count: 38 expected count: 38; missing: []; extra: []; EQUAL: true`, so the unchanged oracle now passes deterministically.",
+      "paths": [
+        "test/e2e/codex-plugin-install-real.serial.test.ts",
+        "test/helpers/agent-harness.ts"
+      ]
+    },
+    {
+      "id": "1-reg",
+      "type": "test",
+      "result": "pass",
+      "checked_with": "bun test test/agent-harness-scoped-writer.serial.test.ts",
+      "proof": "2 pass / 0 fail, 12 expect() calls. Case 1 asserts a plain seed fail-closes the five scoped starter ops out of tools/list; case 2 asserts registerStdioWriter:true exposes the complete declared starter surface and a verifiable stdio-lane credential.",
+      "paths": [
+        "test/agent-harness-scoped-writer.serial.test.ts"
+      ]
+    },
+    {
+      "id": "2",
+      "type": "diff",
+      "result": "pass",
+      "checked_with": "PR body text; docs/tasks/TASK-gbrain-codex-plugin-doors-regression/progress.md; source reads of src/mcp/server.ts:131-163 (stdioVisibleTools), src/mcp/surface.ts:88-103 (STARTER_OPS), src/core/scope.ts:168-175 (operationScopesAllowed)",
+      "proof": "The PR body names stdioVisibleTools and requiredScopes explicitly and progress.md documents the same mechanism (fail-closed requiredScopes ops vs. verified stdio writer grant). SEEDED_STDIO_WRITER_SCOPES evaluates to ['read','write','skill_editor','skills_member_self'] and is derived from the starter surface, so the fixture grant tracks the oracle.",
+      "paths": [
+        "test/helpers/agent-harness.ts",
+        "docs/tasks/TASK-gbrain-codex-plugin-doors-regression/progress.md"
+      ]
+    },
+    {
+      "id": "3",
+      "type": "diff",
+      "result": "pass",
+      "checked_with": "GitHub pulls/20/files API and `git diff --name-status f106c15 HEAD`",
+      "proof": "Changed files are exactly docs/tasks/TASK-gbrain-codex-plugin-doors-regression/progress.md (A), test/agent-harness-scoped-writer.serial.test.ts (A), test/e2e/codex-plugin-install-real.serial.test.ts (M), test/helpers/agent-harness.ts (M). No src/ path appears; src/mcp/server.ts is not modified, so the fail-closed design is not weakened.",
+      "paths": [
+        "docs/tasks/TASK-gbrain-codex-plugin-doors-regression/progress.md",
+        "test/agent-harness-scoped-writer.serial.test.ts",
+        "test/e2e/codex-plugin-install-real.serial.test.ts",
+        "test/helpers/agent-harness.ts"
+      ]
+    },
+    {
+      "id": "N1",
+      "type": "diff",
+      "result": "pass",
+      "checked_with": "grep of src/core/ops/skills-catalog.ts:132,143 and src/core/ops/brain-membership.ts:6,13,20, plus `git diff f106c15 HEAD -- src/` (empty)",
+      "proof": "put_skill/delete_skill still declare requiredScopes:['skill_editor']; join_brain/sync_brain_skills/leave_brain still declare requiredScopes:['skills_member_self']. No src file is modified, so no requiredScopes were removed to green the test.",
+      "paths": [
+        "test/helpers/agent-harness.ts",
+        "test/e2e/codex-plugin-install-real.serial.test.ts"
+      ]
+    },
+    {
+      "id": "N2",
+      "type": "diff",
+      "result": "pass",
+      "checked_with": "git diff f106c15 HEAD -- test/e2e/codex-plugin-install-real.serial.test.ts",
+      "proof": "The INSTALL door test and its oracle remain: `const expected = filterOpsForSurface(operations, 'starter').map(o => o.name).sort(); expect(tools.sort()).toEqual(expected);` is unchanged. The only edit is the seed call plus a 3-line explanatory comment (`seedBrainForAgent(seededHome, 'workspace', { registerStdioWriter: true })`). The door was not deleted.",
+      "paths": [
+        "test/e2e/codex-plugin-install-real.serial.test.ts"
+      ]
+    },
+    {
+      "id": "N3",
+      "type": "diff",
+      "result": "pass",
+      "checked_with": "git diff f106c15 HEAD -- test/helpers/agent-harness.ts test/e2e/codex-plugin-install-real.serial.test.ts; bun run check:no-double-retry",
+      "proof": "The added lines are a comment block, a derived scopes constant, an opt-in option, and a deterministic `registerLocalWriter(engine,'stdio',{...},true)` call. No setTimeout/sleep/polling/flake-retry was introduced; check:no-double-retry exits 0.",
+      "paths": [
+        "test/helpers/agent-harness.ts",
+        "test/e2e/codex-plugin-install-real.serial.test.ts"
+      ]
+    },
+    {
+      "id": "codex-real",
+      "type": "skip",
+      "result": "skip",
+      "checked_with": "which codex; bun test test/e2e/codex-plugin-install-real.serial.test.ts",
+      "proof": "No codex binary is available in this environment, so the INSTALL and SMOKE tiers self-skip (2 skip). A fresh codex-binary nightly run could not be executed here; the same oracle path was exercised end-to-end by the staged-launcher spawn probe instead.",
+      "paths": [
+        "test/e2e/codex-plugin-install-real.serial.test.ts"
+      ]
+    },
+    {
+      "id": "guards",
+      "type": "test",
+      "result": "pass",
+      "checked_with": "NODE_OPTIONS=--max-old-space-size=5120 bun run typecheck; bash scripts/check-test-isolation.sh; bun scripts/classify-tests.ts --check; bun run check:privacy; bun run check:test-names; bash scripts/check-trailing-newline.sh; bun run check:source-config-leak",
+      "proof": "All exit 0: typecheck clean (tsc --noEmit), test-isolation OK (1952 non-serial unit files scanned), structural-suites.tsv fresh, privacy/test-names/source-config-leak clean, trailing-newline ok (2929 files).",
+      "paths": [
+        "test/agent-harness-scoped-writer.serial.test.ts",
+        "test/helpers/agent-harness.ts"
+      ]
+    },
+    {
+      "id": "suite",
+      "type": "test",
+      "result": "pass",
+      "checked_with": "bun test test/agent-harness-scoped-writer.serial.test.ts test/mcp-stdio-gate-list.test.ts test/agent-harness-seed.serial.test.ts test/mcp-surface.test.ts test/server-degraded-scope.test.ts; bun test test/mcp-surface.test.ts test/server-degraded-scope.test.ts test/operations-trust-boundary.test.ts test/shared-skills-authority.test.ts test/e2e/codex-plugin-install-real.serial.test.ts",
+      "proof": "First set: 36 pass / 0 fail. Second set: 58 pass / 2 skip / 0 fail (the 2 skips are the codex door suites without a codex binary). Reproduces the PR's stated counts.",
+      "paths": [
+        "test/agent-harness-scoped-writer.serial.test.ts"
+      ]
+    }
+  ]
+}
