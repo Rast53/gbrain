@@ -39,6 +39,8 @@ import { PGLiteEngine } from '../../src/core/pglite-engine.ts';
 import { operations, type OperationContext, type Operation } from '../../src/core/operations.ts';
 import { saveConfig, gbrainPath, type GBrainConfig } from '../../src/core/config.ts';
 import { addSource, SourceOpError } from '../../src/core/sources-ops.ts';
+import { registerLocalWriter } from '../../src/core/persistence/identity.ts';
+import { filterOpsForSurface } from '../../src/mcp/surface.ts';
 
 // ────────────────────────────────────────────────────────────────────────────
 // 1. Hermetic child environment
@@ -1375,11 +1377,34 @@ export interface SeededBrain {
 }
 
 /**
+ * Scopes a SEEDED local stdio writer must hold for the spawned `gbrain serve`
+ * to advertise the FULL declared starter surface. Derived from the surface
+ * itself so the fixture grant can never drift from the oracle: the default
+ * local grant (read/write) does NOT cover the scoped starter ops —
+ * `put_skill`/`delete_skill` require `skill_editor`, and
+ * `join_brain`/`sync_brain_skills`/`leave_brain` require
+ * `skills_member_self` — so `stdioVisibleTools` correctly fail-closes them out
+ * of `tools/list`. Door tests that pin the tools/list ORACLE opt into this
+ * complete grant via `seedBrainForAgent(..., { registerStdioWriter: true })`.
+ */
+export const SEEDED_STDIO_WRITER_SCOPES: readonly string[] = [...new Set([
+  'read', 'write',
+  ...filterOpsForSurface(operations, 'starter').flatMap((op) => op.requiredScopes ?? []),
+])];
+
+/**
  * Initialize a keyless PGLite brain at GBRAIN_HOME=<home> and seed ONE page
  * with a distinctive, 100%-synthetic fact so a door test can assert the agent
  * recalls it over MCP. Persistent on disk (so the spawned `gbrain serve`
  * subprocess reads the same brain), keyless (embedding_disabled) so it runs
  * with no API key, skills published so the verbs surface is available.
+ *
+ * `registerStdioWriter: true` additionally registers the stdio-lane local
+ * writer with {@link SEEDED_STDIO_WRITER_SCOPES} (see the constant for why).
+ * The spawned serve verifies that writer against the same PGLite DB, so the
+ * surface oracle sees the complete declared starter set. The registration
+ * lands in THIS home's `.gbrain/persistence` (GBRAIN_HOME is pinned to
+ * <home> for the duration), so per-test identity isolation is preserved.
  *
  * Temporarily pins process.env.GBRAIN_HOME while creating the brain, then
  * restores it — the door test sets GBRAIN_HOME on the spawned child via the
@@ -1388,7 +1413,7 @@ export interface SeededBrain {
 export async function seedBrainForAgent(
   home: string,
   sourceId: string,
-  opts?: { entity?: string; fact?: string; query?: string; slug?: string },
+  opts?: { entity?: string; fact?: string; query?: string; slug?: string; registerStdioWriter?: boolean },
 ): Promise<SeededBrain> {
   if (!put_page) throw new Error('seedBrainForAgent: put_page op not registered');
 
@@ -1436,6 +1461,20 @@ export async function seedBrainForAgent(
         slug: opts?.slug ?? 'companies/summit-robotics',
         content: `# ${entity}\n\n${fact}\n`,
       });
+
+      // Surface-oracle door tests (codex plugin) must see the FULL declared
+      // starter surface through the spawned serve. `stdioVisibleTools`
+      // fail-closes every `requiredScopes` op against the stdio writer's
+      // grant, and the manual seed above never runs `gbrain init` — so
+      // without this the five scoped starter ops are filtered out of
+      // tools/list. Register the complete fixture grant against the SAME
+      // seeded brain; the spawned serve verifies it from the same PGLite DB.
+      if (opts?.registerStdioWriter) {
+        await registerLocalWriter(engine, 'stdio', {
+          sourceIds: ['*'], operations: null,
+          scopes: [...SEEDED_STDIO_WRITER_SCOPES], slugPrefixes: null,
+        }, true);
+      }
     } finally {
       // Release the PGLite lock so the spawned `gbrain serve` can open the
       // same data dir.
