@@ -1,0 +1,46 @@
+{
+  "verdict": "PASS",
+  "sha": "2309010480d27c67b2786d369d2cc1fc1874341d",
+  "reasons": [
+    "Nightly root cause independently confirmed: master heavy run 36585780372 / job 'Plugin doors (codex + claude, install tier)' failed at the codex INSTALL oracle (test/e2e/codex-plugin-install-real.serial.test.ts line 221) with tools/list missing exactly delete_skill, join_brain, leave_brain, put_skill, sync_brain_skills.",
+    "Harness-only fix: the PR changes 4 files (+230/-2), none under src/; src/mcp/server.ts stdioVisibleTools still returns scopes=[] when no verified stdio writer exists, so the production fail-closed branch is untouched and cannot become 'open to all'.",
+    "requiredScopes remain on all five ops: put_skill/delete_skill -> ['skill_editor']; join_brain/sync_brain_skills/leave_brain -> ['skills_member_self'] (src/core/ops/skills-catalog.ts, src/core/ops/brain-membership.ts unchanged).",
+    "Mechanics are explained in the PR body by reference to stdioVisibleTools / requiredScopes and recorded in docs/tasks/TASK-gbrain-codex-plugin-doors-regression/progress.md.",
+    "Independent end-to-end reproduction of the door's step (e): staging the tree and running the real .agents/gbrain-launcher with `serve --surface starter --source-guard` over a registerStdioWriter seed returned tools/list equal to filterOpsForSurface(operations,'starter') exactly (38/38, zero missing/extra).",
+    "New regression test is discriminating and green: 2 pass / 0 fail — a plain seed still fail-closes the five scoped ops (production posture), while registerStdioWriter exposes the full declared surface. PR-claimed suites reproduced: 36 pass / 0 fail and 58 pass / 2 skip; typecheck clean; test-isolation, structural-manifest, privacy, test-names, trailing-newline and source-config-leak guards all exit 0.",
+    "Deterministic fix: no sleeps and no flake-retry were introduced; the fixture grant is derived from the starter surface itself so it cannot drift from the oracle.",
+    "The door test is not deleted and its oracle is unchanged; only the seed call opts into the writer registration.",
+    "Limitation: the real codex INSTALL tier self-skips in this environment (no codex binary), so nightly-green is established by the exact nightly failure signature plus the launcher spawn probe rather than a fresh codex run."
+  ],
+  "model": "deepseek/deepseek-v4.1-flash",
+  "gate_version": {
+    "schema": 1,
+    "code_sha": "unknown",
+    "profile": "headless",
+    "model": "deepseek/deepseek-v4.1-flash",
+    "verify_path": "dsh",
+    "chain": [
+      "primary:dsh"
+    ]
+  },
+  "build_model": "deepseek-v4.1-flash",
+  "verify_model": "deepseek/deepseek-v4.1-flash",
+  "build_family": "deepseek",
+  "verify_family": "deepseek",
+  "tokens_in": 107440,
+  "tokens_out": 32647,
+  "cache_read": 3915520,
+  "cost_usd": 0.047451,
+  "peak": false,
+  "usage_source": "session_v3",
+  "usage": {
+    "model": "deepseek/deepseek-v4.1-flash",
+    "tokens_in": 107440,
+    "tokens_out": 32647,
+    "cache_read": 3915520,
+    "cost_usd": 0.047451,
+    "peak": false,
+    "usage_source": "session_v3",
+    "usage_missing": false
+  }
+}
