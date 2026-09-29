@@ -203,7 +203,10 @@ describe.skipIf(!PLUGIN_CAPABLE)('codex plugin door — INSTALL (no auth needed)
       const binDir = mkdtempSync(join(tmpdir(), 'gb-plugin-bin-'));
       const gbrainBin = gbrainBinForTests(binDir);
       const seededHome = mkdtempSync(join(tmpdir(), 'gb-plugin-brain-'));
-      await seedBrainForAgent(seededHome, 'workspace');
+      // registerStdioWriter: the spawned serve fail-closes scoped ops against
+      // the stdio writer's grant (stdioVisibleTools), so the seed must hold
+      // the skills scopes for the starter ORACLE below to stay unchanged.
+      await seedBrainForAgent(seededHome, 'workspace', { registerStdioWriter: true });
       const probeEnv = hermeticChildEnv({
         HOME: seededHome,
         GBRAIN_BIN: gbrainBin,
