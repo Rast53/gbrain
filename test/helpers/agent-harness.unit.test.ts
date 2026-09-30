@@ -5,6 +5,8 @@
  *     stream-json` NDJSON fixture (tool_use names + final result text).
  *   - parseCodexJsonl against a captured `codex exec --json` JSONL fixture
  *     (command_execution → toolCalls, agent_message → finalText, reasoning).
+ *   - resolveClaudeBinary / resolveCodexBinary / resolveHermesBinary SMOKE
+ *     (whatever this machine has; null is a pass).
  *   - hermeticChildEnv: drops CONDUCTOR_* / CLAUDE_* / GSTACK_* / MCP_* /
  *     GBRAIN_*, promotes GSTACK_ANTHROPIC_API_KEY, honors extraAllow, and lets
  *     overrides win.
@@ -24,6 +26,9 @@ import {
   hermesChildEnv,
   grokChildEnv,
   promotedEnv,
+  resolveClaudeBinary,
+  resolveCodexBinary,
+  resolveHermesBinary,
   resolveGrokBinary,
   hasHermesAuth,
   hasGrokAuth,
