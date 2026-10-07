@@ -2,14 +2,14 @@ import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { runInNewContext } from 'node:vm';
-import { safeLoad } from 'js-yaml';
+import { load as loadYaml } from 'js-yaml';
 
 type Job = {
   'runs-on'?: string;
   strategy?: { matrix: { os?: string[]; target?: string[] } };
 };
 const root = join(import.meta.dir, '../..');
-const load = (name: string) => safeLoad(readFileSync(join(root, '.github/workflows', name), 'utf8')) as { jobs: Record<string, Job> };
+const load = (name: string) => loadYaml(readFileSync(join(root, '.github/workflows', name), 'utf8')) as { jobs: Record<string, Job> };
 // Fork delta: upstream routes repository-owned Linux jobs to Ubicloud
 // (`ubicloud-standard-*`) self-hosted labels. This fork has no Ubicloud
 // Managed Runners GitHub App or billing — those jobs would queue forever — so
@@ -83,9 +83,9 @@ describe('CI runner routing', () => {
   });
 
   test('actionlint declares no custom self-hosted labels and watches its configuration', () => {
-    const config = safeLoad(readFileSync(join(root, '.github/actionlint.yaml'), 'utf8')) as { 'self-hosted-runner'?: { labels?: string[] } } | undefined;
+    const config = loadYaml(readFileSync(join(root, '.github/actionlint.yaml'), 'utf8')) as { 'self-hosted-runner'?: { labels?: string[] } } | undefined;
     expect(config?.['self-hosted-runner']?.labels ?? []).toEqual([]);
-    const workflow = safeLoad(readFileSync(join(root, '.github/workflows/actionlint.yml'), 'utf8')) as { on: Record<string, { paths: string[] }> };
+    const workflow = loadYaml(readFileSync(join(root, '.github/workflows/actionlint.yml'), 'utf8')) as { on: Record<string, { paths: string[] }> };
     for (const event of ['push', 'pull_request']) expect(workflow.on[event].paths).toContain('.github/actionlint.yaml');
   });
 });
