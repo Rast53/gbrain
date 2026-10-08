@@ -180,6 +180,18 @@ export const CANONICAL_PRICING: Record<string, ModelPricing> = {
   'deepseek:deepseek-flash':              { input:  0.30, output:  1.20 },
   'deepseek:deepseek-v4-flash':           { input:  0.30, output:  1.20 },
   'deepseek:deepseek-v4-pro':             { input:  1.32, output:  3.96 },
+
+  // ── OpenCode Zen Go (opencode.ai/zen/go/v1) ─────────────────────────────
+  // Fork-local rows for the opencode-go recipe. Rates verified 2026-10-08 at
+  // https://opencode.ai/docs/go/ — the Go plan's PEAK list rates, the same
+  // upper-bound convention as the deepseek rows above (off-peak bills half:
+  // $0.15/$0.60 for Flash). `deepseek-flash` / `deepseek-v4-flash` /
+  // `deepseek-v4.1-flash` are the same DeepSeek-V4.1-Flash model under three
+  // served aliases, so the trio stays in lockstep at the Flash rate.
+  'opencode-go:deepseek-flash':           { input:  0.30, output:  1.20 },
+  'opencode-go:deepseek-v4-flash':        { input:  0.30, output:  1.20 },
+  'opencode-go:deepseek-v4.1-flash':      { input:  0.30, output:  1.20 },
+  'opencode-go:deepseek-v4-pro':          { input:  1.32, output:  3.96 },
   // ── Z.ai / GLM (via LiteLLM proxy) ───────────────────────────────────
   // GLM-5.2 from Z.ai: $1.40/M input, $4.40/M output (verified 2026-08-16
   // against OpenRouter provider listings — z.ai's own direct rates).
