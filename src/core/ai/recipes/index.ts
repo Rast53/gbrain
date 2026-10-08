@@ -31,6 +31,7 @@ import { mistral } from './mistral.ts';
 import { nvidia } from './nvidia.ts';
 import { perplexity } from './perplexity.ts';
 import { typesafe } from './typesafe.ts';
+import { opencodeGo } from './opencode-go.ts';
 
 const ALL: Recipe[] = [
   openai,
@@ -58,6 +59,7 @@ const ALL: Recipe[] = [
   nvidia,
   perplexity,
   typesafe,
+  opencodeGo,
 ];
 
 /** Map from `provider:id` key to recipe. */
