@@ -26,6 +26,12 @@ import { join } from 'node:path';
 import { withEnv } from './helpers/with-env.ts';
 import { bigintToStringReplacer } from '../src/core/utils.ts';
 
+// 0.60.248: the force-exit module keeps growing entry points; instead of
+// re-listing them here (the chain broke twice on writeJsonDocument /
+// jsonGuardActive), capture the real namespace BEFORE the mock and spread
+// it, overriding only the three symbols these pins intercept.
+const realForceExit = await import('../src/core/cli-force-exit.ts');
+
 const written: string[] = [];
 const verdicts: number[] = [];
 
@@ -33,7 +39,9 @@ const verdicts: number[] = [];
 // factory importing its own target deadlocks). Only the three symbols the
 // admin/lifecycle CLI paths and persistence-delegate use are needed here.
 mock.module('../src/core/cli-force-exit.ts', () => ({
+  ...realForceExit,
   writeStdoutFinal: async (payload: string) => { written.push(payload); },
+  writeJsonDocument: async (text: string, unguarded: (text: string) => void = (x) => { written.push(x); }) => { unguarded(text); },
   finishCliTeardown: async () => {},
   setCliExitVerdict: (code: number) => { verdicts.push(code); },
 }));
